@@ -266,6 +266,7 @@ function Write-ProfileLauncher {
     Ensure-Directory (Get-LaunchersDir)
     $runner = Get-ModuleRunnerPath
     $workspace = [string]$Profile.workspace
+    $workspaceArg = if ($workspace) { "-Workspace $(ConvertTo-TomlString $workspace) " } else { "" }
     $content = @"
 param(
     [Parameter(ValueFromRemainingArguments = `$true)]
@@ -273,7 +274,7 @@ param(
 )
 
 `$runner = $(ConvertTo-TomlString $runner)
-& `$runner -Id $(ConvertTo-TomlString $Profile.id) -Workspace $(ConvertTo-TomlString $workspace) @CodexArgs
+& `$runner -Id $(ConvertTo-TomlString $Profile.id) $workspaceArg@CodexArgs
 exit `$LASTEXITCODE
 "@
     Write-Utf8File -Path $Profile.paths.launcherPath -Content ($content + [Environment]::NewLine)
@@ -286,7 +287,7 @@ function New-CodexApiProfile {
         [Parameter(Mandatory = $true)][string]$Name,
         [Parameter(Mandatory = $true)][string]$BaseUrl,
         [Parameter(Mandatory = $true)][string]$Model,
-        [string]$Workspace = (Get-Location).Path,
+        [string]$Workspace = "",
         [ValidateSet("low", "medium", "high", "xhigh", "max", "ultra")][string]$ReasoningEffort = "medium",
         [securestring]$ApiKey,
         [switch]$Force
@@ -315,7 +316,7 @@ function New-CodexApiProfile {
         model = $Model
         reasoningEffort = $ReasoningEffort
         envKeyName = $envKeyName
-        workspace = [System.IO.Path]::GetFullPath($Workspace)
+        workspace = if ($Workspace) { [System.IO.Path]::GetFullPath($Workspace) } else { $null }
         createdAt = if ($existing -and $existing.createdAt) { $existing.createdAt } else { $now }
         updatedAt = $now
         paths = [ordered]@{
@@ -379,6 +380,44 @@ function Set-CodexApiProfileApiKey {
         EnvKeyName = $profile.envKeyName
         SecretPath = Get-ProfileSecretPath -Id $profile.id
         HasApiKey = $true
+    }
+}
+
+function Set-CodexApiProfileWorkspace {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Id,
+        [string]$Workspace,
+        [switch]$Clear
+    )
+
+    $state = Read-State
+    $profile = Get-ProfileById -State $state -Id $Id
+    if (-not $profile) {
+        throw "Profile '$Id' was not found."
+    }
+
+    if ($Clear) {
+        $profile.workspace = $null
+    }
+    else {
+        if (-not $Workspace) {
+            throw "Provide -Workspace or use -Clear."
+        }
+        if (-not (Test-Path -LiteralPath $Workspace -PathType Container)) {
+            throw "Workspace does not exist: $Workspace"
+        }
+        $profile.workspace = [System.IO.Path]::GetFullPath($Workspace)
+    }
+
+    $profile.updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+    Write-State -State $state
+    Write-ProfileLauncher -Profile $profile
+
+    [pscustomobject]@{
+        Id = $profile.id
+        Workspace = $profile.workspace
+        LauncherPath = $profile.paths.launcherPath
     }
 }
 
@@ -622,7 +661,15 @@ function Invoke-CodexApiProfileInCurrentWindow {
         $env:CODEX_HOME = $Profile.paths.codexHome
         [Environment]::SetEnvironmentVariable($Profile.envKeyName, $apiKey, "Process")
 
-        $workspaceToUse = if ($Workspace) { [System.IO.Path]::GetFullPath($Workspace) } else { [string]$Profile.workspace }
+        $workspaceToUse = if ($Workspace) {
+            [System.IO.Path]::GetFullPath($Workspace)
+        }
+        elseif ($Profile.workspace) {
+            [string]$Profile.workspace
+        }
+        else {
+            (Get-Location).Path
+        }
         $args = @("-C", $workspaceToUse)
         if ($CodexArgs) {
             $args += $CodexArgs
@@ -723,6 +770,7 @@ Export-ModuleMember -Function @(
     "Get-CodexApiLauncherRoot",
     "New-CodexApiProfile",
     "Set-CodexApiProfileApiKey",
+    "Set-CodexApiProfileWorkspace",
     "Get-CodexApiProfile",
     "Get-CodexApiProfiles",
     "Test-CodexApiProfile",

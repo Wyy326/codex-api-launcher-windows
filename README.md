@@ -37,6 +37,7 @@ The UI lets you:
 - choose an existing API profile
 - browse for a project folder
 - open a new isolated Codex CLI terminal for that folder
+- optionally save or clear a default project folder per profile
 - open the profile's `CODEX_HOME`
 - run an HTTP smoke test
 - run a real Codex CLI check for gateways that only allow Codex request shapes
@@ -131,6 +132,13 @@ Each profile also gets a generated launcher script:
 
 ```text
 %LOCALAPPDATA%\CodexApiLauncher\launchers\<id>.ps1
+```
+
+Set or clear an optional default project folder:
+
+```powershell
+Set-CodexApiProfileWorkspace -Id "shuaiapi" -Workspace "D:\workplace\Test"
+Set-CodexApiProfileWorkspace -Id "shuaiapi" -Clear
 ```
 
 ## Remove

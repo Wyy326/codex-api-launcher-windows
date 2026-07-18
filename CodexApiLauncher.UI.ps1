@@ -3,8 +3,8 @@ param(
 )
 
 Set-StrictMode -Version 2.0
-
 $ErrorActionPreference = "Stop"
+
 $modulePath = Join-Path $PSScriptRoot "CodexApiLauncher.psm1"
 Import-Module $modulePath -Force
 
@@ -12,16 +12,27 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 if ($SmokeTest) {
-    $profiles = @(Get-CodexApiProfiles)
-    [pscustomobject]@{
+    Write-Output ([pscustomobject]@{
         ModulePath = $modulePath
-        ProfileCount = $profiles.Count
+        ProfileCount = @(Get-CodexApiProfiles).Count
         FormsLoaded = [bool]([System.Windows.Forms.Form])
-    }
-    exit 0
+    })
+    return
 }
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
+
+$script:Colors = @{
+    Window = [System.Drawing.Color]::FromArgb(245, 247, 250)
+    Surface = [System.Drawing.Color]::White
+    Border = [System.Drawing.Color]::FromArgb(218, 224, 232)
+    Text = [System.Drawing.Color]::FromArgb(32, 36, 42)
+    Muted = [System.Drawing.Color]::FromArgb(91, 99, 111)
+    Primary = [System.Drawing.Color]::FromArgb(36, 92, 161)
+    PrimaryDark = [System.Drawing.Color]::FromArgb(24, 65, 119)
+    SoftBlue = [System.Drawing.Color]::FromArgb(232, 240, 252)
+    Warning = [System.Drawing.Color]::FromArgb(122, 83, 18)
+}
 
 function New-UiFont {
     param(
@@ -31,20 +42,39 @@ function New-UiFont {
     return New-Object System.Drawing.Font("Segoe UI", $Size, $Style)
 }
 
+function New-Panel {
+    param(
+        [int]$X,
+        [int]$Y,
+        [int]$Width,
+        [int]$Height
+    )
+    $panel = New-Object System.Windows.Forms.Panel
+    $panel.Location = New-Object System.Drawing.Point($X, $Y)
+    $panel.Size = New-Object System.Drawing.Size($Width, $Height)
+    $panel.BackColor = $script:Colors.Surface
+    $panel.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    return $panel
+}
+
 function New-Label {
     param(
         [string]$Text,
         [int]$X,
         [int]$Y,
         [int]$Width,
-        [int]$Height = 23
+        [int]$Height = 23,
+        [float]$Size = 9.0,
+        [System.Drawing.FontStyle]$Style = [System.Drawing.FontStyle]::Regular,
+        [System.Drawing.Color]$Color = $script:Colors.Text
     )
     $label = New-Object System.Windows.Forms.Label
     $label.Text = $Text
     $label.Location = New-Object System.Drawing.Point($X, $Y)
     $label.Size = New-Object System.Drawing.Size($Width, $Height)
     $label.AutoEllipsis = $true
-    $label.Font = New-UiFont
+    $label.Font = New-UiFont -Size $Size -Style $Style
+    $label.ForeColor = $Color
     return $label
 }
 
@@ -54,14 +84,46 @@ function New-Button {
         [int]$X,
         [int]$Y,
         [int]$Width,
-        [int]$Height = 32
+        [int]$Height = 34,
+        [switch]$Primary
     )
     $button = New-Object System.Windows.Forms.Button
     $button.Text = $Text
     $button.Location = New-Object System.Drawing.Point($X, $Y)
     $button.Size = New-Object System.Drawing.Size($Width, $Height)
-    $button.Font = New-UiFont
+    $button.Font = New-UiFont -Size 9.0 -Style ($(if ($Primary) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }))
+    $button.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $button.FlatAppearance.BorderColor = $script:Colors.Border
+    $button.FlatAppearance.MouseOverBackColor = $script:Colors.SoftBlue
+    if ($Primary) {
+        $button.BackColor = $script:Colors.Primary
+        $button.ForeColor = [System.Drawing.Color]::White
+        $button.FlatAppearance.BorderColor = $script:Colors.PrimaryDark
+    }
+    else {
+        $button.BackColor = [System.Drawing.Color]::FromArgb(250, 251, 253)
+        $button.ForeColor = $script:Colors.Text
+    }
     return $button
+}
+
+function New-ReadOnlyBox {
+    param(
+        [int]$X,
+        [int]$Y,
+        [int]$Width,
+        [int]$Height
+    )
+    $box = New-Object System.Windows.Forms.TextBox
+    $box.Location = New-Object System.Drawing.Point($X, $Y)
+    $box.Size = New-Object System.Drawing.Size($Width, $Height)
+    $box.Multiline = $true
+    $box.ReadOnly = $true
+    $box.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+    $box.Font = New-UiFont
+    $box.BackColor = [System.Drawing.Color]::FromArgb(250, 251, 253)
+    $box.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    return $box
 }
 
 function Resolve-ShellExecutable {
@@ -78,21 +140,6 @@ function Resolve-ShellExecutable {
         return $powershell.Source
     }
     throw "Could not find pwsh.exe or powershell.exe."
-}
-
-function Format-TestResult {
-    param($Result)
-    if (-not $Result) {
-        return "No result."
-    }
-    return @(
-        "Status: $($Result.Status)"
-        "OK: $($Result.Ok)"
-        "Models HTTP: $($Result.ModelsHttpStatus)"
-        "Responses HTTP: $($Result.ResponsesHttpStatus)"
-        "Model count: $($Result.ModelCount)"
-        "Details: $($Result.Details)"
-    ) -join [Environment]::NewLine
 }
 
 function Invoke-CliCheck {
@@ -140,151 +187,218 @@ function Invoke-CliCheck {
     }
 }
 
+function Format-TestResult {
+    param($Result)
+    return @(
+        "HTTP smoke test"
+        "Status: $($Result.Status)"
+        "OK: $($Result.Ok)"
+        "Models HTTP: $($Result.ModelsHttpStatus)"
+        "Responses HTTP: $($Result.ResponsesHttpStatus)"
+        "Model count: $($Result.ModelCount)"
+        "Details: $($Result.Details)"
+    ) -join [Environment]::NewLine
+}
+
+function Get-ProfileDisplay {
+    param($Profile)
+    if (-not $Profile) {
+        return ""
+    }
+    return "$($Profile.Name)`r`n$($Profile.Model)"
+}
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Codex API Launcher"
 $form.StartPosition = "CenterScreen"
-$form.Size = New-Object System.Drawing.Size(820, 540)
-$form.MinimumSize = New-Object System.Drawing.Size(760, 500)
+$form.Size = New-Object System.Drawing.Size(980, 650)
+$form.MinimumSize = New-Object System.Drawing.Size(920, 600)
+$form.BackColor = $script:Colors.Window
 $form.Font = New-UiFont
+$form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Font
 
-$title = New-Label -Text "Codex API Launcher" -X 18 -Y 16 -Width 460 -Height 30
-$title.Font = New-UiFont -Size 14 -Style ([System.Drawing.FontStyle]::Bold)
-$form.Controls.Add($title)
+$headerTitle = New-Label -Text "Codex API Launcher" -X 24 -Y 18 -Width 360 -Height 34 -Size 16 -Style ([System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($headerTitle)
 
-$subtitle = New-Label -Text "Choose an isolated API profile and a project folder, then open a new Codex CLI window." -X 18 -Y 48 -Width 740 -Height 23
-$form.Controls.Add($subtitle)
+$headerText = New-Label -Text "Pick an API profile, choose a project folder, and open an isolated Codex CLI window." -X 24 -Y 54 -Width 820 -Height 24 -Color $script:Colors.Muted
+$form.Controls.Add($headerText)
 
-$profileLabel = New-Label -Text "Profile" -X 18 -Y 88 -Width 120
-$form.Controls.Add($profileLabel)
+$leftPanel = New-Panel -X 24 -Y 94 -Width 292 -Height 500
+$form.Controls.Add($leftPanel)
 
-$profileBox = New-Object System.Windows.Forms.ComboBox
-$profileBox.Location = New-Object System.Drawing.Point(140, 84)
-$profileBox.Size = New-Object System.Drawing.Size(460, 28)
-$profileBox.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
-$profileBox.Font = New-UiFont
-$form.Controls.Add($profileBox)
+$rightPanel = New-Panel -X 334 -Y 94 -Width 622 -Height 500
+$form.Controls.Add($rightPanel)
 
-$refreshButton = New-Button -Text "Refresh" -X 616 -Y 82 -Width 88
-$form.Controls.Add($refreshButton)
+$profilesTitle = New-Label -Text "Profiles" -X 16 -Y 14 -Width 160 -Height 26 -Size 11 -Style ([System.Drawing.FontStyle]::Bold)
+$leftPanel.Controls.Add($profilesTitle)
 
-$openLauncherButton = New-Button -Text "Open Launchers" -X 710 -Y 82 -Width 92
-$form.Controls.Add($openLauncherButton)
+$refreshButton = New-Button -Text "Refresh" -X 186 -Y 12 -Width 84 -Height 30
+$leftPanel.Controls.Add($refreshButton)
 
-$workspaceLabel = New-Label -Text "Project folder" -X 18 -Y 130 -Width 120
-$form.Controls.Add($workspaceLabel)
+$profileList = New-Object System.Windows.Forms.ListBox
+$profileList.Location = New-Object System.Drawing.Point(16, 52)
+$profileList.Size = New-Object System.Drawing.Size(254, 296)
+$profileList.Font = New-UiFont -Size 9.5
+$profileList.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+$profileList.BackColor = [System.Drawing.Color]::FromArgb(250, 251, 253)
+$leftPanel.Controls.Add($profileList)
+
+$profileHint = New-Label -Text "Profiles keep API credentials and Codex state separate. Project folders are selected at launch time." -X 16 -Y 362 -Width 254 -Height 54 -Color $script:Colors.Muted
+$leftPanel.Controls.Add($profileHint)
+
+$openLaunchersButton = New-Button -Text "Open launcher scripts" -X 16 -Y 438 -Width 254 -Height 34
+$leftPanel.Controls.Add($openLaunchersButton)
+
+$selectedTitle = New-Label -Text "Selected profile" -X 20 -Y 16 -Width 200 -Height 28 -Size 12 -Style ([System.Drawing.FontStyle]::Bold)
+$rightPanel.Controls.Add($selectedTitle)
+
+$providerNameLabel = New-Label -Text "No profile selected" -X 20 -Y 48 -Width 372 -Height 24 -Size 10 -Style ([System.Drawing.FontStyle]::Bold)
+$rightPanel.Controls.Add($providerNameLabel)
+
+$providerMetaLabel = New-Label -Text "" -X 20 -Y 74 -Width 570 -Height 42 -Color $script:Colors.Muted
+$rightPanel.Controls.Add($providerMetaLabel)
+
+$homeButton = New-Button -Text "Open CODEX_HOME" -X 446 -Y 42 -Width 146 -Height 32
+$rightPanel.Controls.Add($homeButton)
+
+$separator1 = New-Object System.Windows.Forms.Label
+$separator1.BorderStyle = [System.Windows.Forms.BorderStyle]::Fixed3D
+$separator1.Location = New-Object System.Drawing.Point(20, 124)
+$separator1.Size = New-Object System.Drawing.Size(572, 2)
+$rightPanel.Controls.Add($separator1)
+
+$projectTitle = New-Label -Text "Project folder" -X 20 -Y 146 -Width 180 -Height 26 -Size 11 -Style ([System.Drawing.FontStyle]::Bold)
+$rightPanel.Controls.Add($projectTitle)
+
+$savedProjectLabel = New-Label -Text "Saved default: none" -X 20 -Y 174 -Width 570 -Height 24 -Color $script:Colors.Muted
+$rightPanel.Controls.Add($savedProjectLabel)
 
 $workspaceBox = New-Object System.Windows.Forms.TextBox
-$workspaceBox.Location = New-Object System.Drawing.Point(140, 126)
-$workspaceBox.Size = New-Object System.Drawing.Size(564, 27)
-$workspaceBox.Font = New-UiFont
-$form.Controls.Add($workspaceBox)
+$workspaceBox.Location = New-Object System.Drawing.Point(20, 204)
+$workspaceBox.Size = New-Object System.Drawing.Size(456, 28)
+$workspaceBox.Font = New-UiFont -Size 9.5
+$rightPanel.Controls.Add($workspaceBox)
 
-$browseButton = New-Button -Text "Browse..." -X 716 -Y 123 -Width 86
-$form.Controls.Add($browseButton)
+$browseButton = New-Button -Text "Browse" -X 488 -Y 200 -Width 104 -Height 34 -Primary
+$rightPanel.Controls.Add($browseButton)
 
-$detailsBox = New-Object System.Windows.Forms.TextBox
-$detailsBox.Location = New-Object System.Drawing.Point(140, 166)
-$detailsBox.Size = New-Object System.Drawing.Size(662, 112)
-$detailsBox.Multiline = $true
-$detailsBox.ReadOnly = $true
-$detailsBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
-$detailsBox.Font = New-UiFont
-$form.Controls.Add($detailsBox)
+$rememberCheck = New-Object System.Windows.Forms.CheckBox
+$rememberCheck.Text = "Remember this folder for the selected profile"
+$rememberCheck.Location = New-Object System.Drawing.Point(20, 244)
+$rememberCheck.Size = New-Object System.Drawing.Size(300, 24)
+$rememberCheck.Font = New-UiFont
+$rememberCheck.BackColor = $script:Colors.Surface
+$rightPanel.Controls.Add($rememberCheck)
 
-$detailsLabel = New-Label -Text "Details" -X 18 -Y 168 -Width 120
-$form.Controls.Add($detailsLabel)
+$saveProjectButton = New-Button -Text "Save default" -X 330 -Y 240 -Width 120 -Height 32
+$rightPanel.Controls.Add($saveProjectButton)
 
-$startButton = New-Button -Text "Start Codex" -X 140 -Y 298 -Width 132 -Height 38
-$startButton.Font = New-UiFont -Size 10 -Style ([System.Drawing.FontStyle]::Bold)
-$form.Controls.Add($startButton)
+$clearProjectButton = New-Button -Text "Clear default" -X 464 -Y 240 -Width 128 -Height 32
+$rightPanel.Controls.Add($clearProjectButton)
 
-$cliCheckButton = New-Button -Text "CLI Check" -X 286 -Y 300 -Width 108
-$form.Controls.Add($cliCheckButton)
+$separator2 = New-Object System.Windows.Forms.Label
+$separator2.BorderStyle = [System.Windows.Forms.BorderStyle]::Fixed3D
+$separator2.Location = New-Object System.Drawing.Point(20, 292)
+$separator2.Size = New-Object System.Drawing.Size(572, 2)
+$rightPanel.Controls.Add($separator2)
 
-$httpTestButton = New-Button -Text "HTTP Test" -X 406 -Y 300 -Width 108
-$form.Controls.Add($httpTestButton)
+$startButton = New-Button -Text "Start Codex" -X 20 -Y 316 -Width 170 -Height 42 -Primary
+$startButton.Font = New-UiFont -Size 10.5 -Style ([System.Drawing.FontStyle]::Bold)
+$rightPanel.Controls.Add($startButton)
 
-$openHomeButton = New-Button -Text "Open CODEX_HOME" -X 526 -Y 300 -Width 136
-$form.Controls.Add($openHomeButton)
+$cliCheckButton = New-Button -Text "CLI Check" -X 206 -Y 320 -Width 112 -Height 36
+$rightPanel.Controls.Add($cliCheckButton)
 
-$exitButton = New-Button -Text "Exit" -X 674 -Y 300 -Width 86
-$form.Controls.Add($exitButton)
+$httpTestButton = New-Button -Text "HTTP Test" -X 332 -Y 320 -Width 112 -Height 36
+$rightPanel.Controls.Add($httpTestButton)
 
-$noteLabel = New-Label -Text "Note: HTTP Test may fail for gateways that only allow real Codex CLI request shapes. Use CLI Check for those providers." -X 18 -Y 352 -Width 784 -Height 24
-$form.Controls.Add($noteLabel)
-
-$statusBox = New-Object System.Windows.Forms.TextBox
-$statusBox.Location = New-Object System.Drawing.Point(18, 382)
-$statusBox.Size = New-Object System.Drawing.Size(784, 104)
-$statusBox.Multiline = $true
-$statusBox.ReadOnly = $true
-$statusBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
-$statusBox.Font = New-UiFont
-$form.Controls.Add($statusBox)
+$statusText = New-ReadOnlyBox -X 20 -Y 382 -Width 572 -Height 92
+$rightPanel.Controls.Add($statusText)
 
 $profileMap = @{}
 
 function Set-Status {
     param([string]$Text)
-    $statusBox.Text = $Text
+    $statusText.Text = $Text
 }
 
 function Get-SelectedProfile {
-    if (-not $profileBox.SelectedItem) {
-        return $null
+    if ($profileList.SelectedItem) {
+        return $profileMap[[string]$profileList.SelectedItem]
     }
-    return $profileMap[[string]$profileBox.SelectedItem]
+    return $null
 }
 
-function Update-Details {
+function Test-WorkspaceReady {
+    $path = $workspaceBox.Text.Trim()
+    return ($path -and (Test-Path -LiteralPath $path -PathType Container))
+}
+
+function Update-Buttons {
+    $hasProfile = $null -ne (Get-SelectedProfile)
+    $hasWorkspace = Test-WorkspaceReady
+    $startButton.Enabled = $hasProfile -and $hasWorkspace
+    $cliCheckButton.Enabled = $hasProfile -and $hasWorkspace
+    $httpTestButton.Enabled = $hasProfile
+    $homeButton.Enabled = $hasProfile
+    $saveProjectButton.Enabled = $hasProfile -and $hasWorkspace
+    $clearProjectButton.Enabled = $hasProfile
+}
+
+function Update-SelectedProfile {
     $profile = Get-SelectedProfile
     if (-not $profile) {
-        $detailsBox.Text = "No profiles found. Create one with New-CodexApiProfile first."
+        $providerNameLabel.Text = "No profile selected"
+        $providerMetaLabel.Text = "Create a profile with New-CodexApiProfile, then refresh this list."
+        $savedProjectLabel.Text = "Saved default: none"
+        $workspaceBox.Text = ""
+        Update-Buttons
         return
     }
 
-    if ($profile.Workspace -and -not $workspaceBox.Text) {
-        $workspaceBox.Text = [string]$profile.Workspace
-    }
+    $providerNameLabel.Text = "$($profile.Name) [$($profile.Id)]"
+    $providerMetaLabel.Text = "Model: $($profile.Model)`r`nBase URL: $($profile.BaseUrl)`r`nEnv: $($profile.EnvKeyName)"
 
-    $detailsBox.Text = @(
-        "ID: $($profile.Id)"
-        "Name: $($profile.Name)"
-        "Base URL: $($profile.BaseUrl)"
-        "Model: $($profile.Model)"
-        "Env key: $($profile.EnvKeyName)"
-        "CODEX_HOME: $($profile.CodexHome)"
-        "Launcher: $($profile.LauncherPath)"
-        "API key stored: $($profile.HasApiKey)"
-    ) -join [Environment]::NewLine
+    if ($profile.Workspace) {
+        $savedProjectLabel.Text = "Saved default: $($profile.Workspace)"
+        if (-not $workspaceBox.Text) {
+            $workspaceBox.Text = [string]$profile.Workspace
+        }
+    }
+    else {
+        $savedProjectLabel.Text = "Saved default: none"
+        $workspaceBox.Text = ""
+    }
+    Update-Buttons
 }
 
 function Refresh-Profiles {
-    $profileBox.Items.Clear()
+    $profileList.Items.Clear()
     $profileMap.Clear()
-    $profiles = @(Get-CodexApiProfiles | Sort-Object Id)
+    $profiles = @(Get-CodexApiProfiles | Sort-Object Name, Id)
     foreach ($profile in $profiles) {
         $display = "$($profile.Name) [$($profile.Id)]"
         $profileMap[$display] = $profile
-        [void]$profileBox.Items.Add($display)
+        [void]$profileList.Items.Add($display)
     }
-    if ($profileBox.Items.Count -gt 0) {
-        $profileBox.SelectedIndex = 0
+
+    if ($profileList.Items.Count -gt 0) {
+        $profileList.SelectedIndex = 0
+        Set-Status "Loaded $($profiles.Count) profile(s). Choose a project folder to start."
     }
     else {
-        $workspaceBox.Text = ""
+        Set-Status "No profiles found yet."
     }
-    Update-Details
-    Set-Status "Loaded $($profiles.Count) profile(s)."
+    Update-SelectedProfile
 }
 
-$profileBox.Add_SelectedIndexChanged({
+$profileList.Add_SelectedIndexChanged({
     $workspaceBox.Text = ""
-    $profile = Get-SelectedProfile
-    if ($profile -and $profile.Workspace) {
-        $workspaceBox.Text = [string]$profile.Workspace
-    }
-    Update-Details
+    Update-SelectedProfile
+})
+
+$workspaceBox.Add_TextChanged({
+    Update-Buttons
 })
 
 $refreshButton.Add_Click({
@@ -297,14 +411,69 @@ $refreshButton.Add_Click({
 })
 
 $browseButton.Add_Click({
-    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-    $dialog.Description = "Choose the project folder for Codex"
-    $dialog.ShowNewFolderButton = $true
-    if ($workspaceBox.Text -and (Test-Path -LiteralPath $workspaceBox.Text -PathType Container)) {
-        $dialog.SelectedPath = $workspaceBox.Text
+    try {
+        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dialog.Description = "Choose the project folder for Codex"
+        $dialog.ShowNewFolderButton = $true
+        if ((Test-WorkspaceReady)) {
+            $dialog.SelectedPath = $workspaceBox.Text.Trim()
+        }
+        elseif ([Environment]::GetFolderPath([Environment+SpecialFolder]::MyDocuments)) {
+            $dialog.SelectedPath = [Environment]::GetFolderPath([Environment+SpecialFolder]::MyDocuments)
+        }
+        if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
+            $workspaceBox.Text = $dialog.SelectedPath
+            Set-Status "Project folder selected."
+        }
     }
-    if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
-        $workspaceBox.Text = $dialog.SelectedPath
+    catch {
+        Set-Status $_.Exception.Message
+    }
+})
+
+$saveProjectButton.Add_Click({
+    try {
+        $profile = Get-SelectedProfile
+        if (-not $profile) {
+            throw "Select a profile first."
+        }
+        if (-not (Test-WorkspaceReady)) {
+            throw "Choose an existing project folder before saving."
+        }
+        $result = Set-CodexApiProfileWorkspace -Id $profile.Id -Workspace $workspaceBox.Text.Trim()
+        Set-Status "Saved default project folder for $($profile.Id)."
+        Refresh-Profiles
+        foreach ($item in $profileList.Items) {
+            if ([string]$item -like "*[$($profile.Id)]") {
+                $profileList.SelectedItem = $item
+                break
+            }
+        }
+    }
+    catch {
+        Set-Status $_.Exception.Message
+    }
+})
+
+$clearProjectButton.Add_Click({
+    try {
+        $profile = Get-SelectedProfile
+        if (-not $profile) {
+            throw "Select a profile first."
+        }
+        Set-CodexApiProfileWorkspace -Id $profile.Id -Clear | Out-Null
+        $workspaceBox.Text = ""
+        Set-Status "Cleared the saved project folder for $($profile.Id)."
+        Refresh-Profiles
+        foreach ($item in $profileList.Items) {
+            if ([string]$item -like "*[$($profile.Id)]") {
+                $profileList.SelectedItem = $item
+                break
+            }
+        }
+    }
+    catch {
+        Set-Status $_.Exception.Message
     }
 })
 
@@ -314,12 +483,16 @@ $startButton.Add_Click({
         if (-not $profile) {
             throw "Select a profile first."
         }
-        $workspace = $workspaceBox.Text.Trim()
-        if (-not $workspace -or -not (Test-Path -LiteralPath $workspace -PathType Container)) {
+        if (-not (Test-WorkspaceReady)) {
             throw "Choose an existing project folder."
         }
+
+        $workspace = $workspaceBox.Text.Trim()
+        if ($rememberCheck.Checked) {
+            Set-CodexApiProfileWorkspace -Id $profile.Id -Workspace $workspace | Out-Null
+        }
         $result = Start-CodexApiProfile -Id $profile.Id -Workspace $workspace
-        Set-Status ("Started profile '{0}' in a new terminal.`r`nCODEX_HOME: {1}`r`nWorkspace: {2}" -f $profile.Id, $result.CodexHome, $workspace)
+        Set-Status "Started $($profile.Id) in a new Codex terminal.`r`nProject: $workspace`r`nCODEX_HOME: $($result.CodexHome)"
     }
     catch {
         Set-Status $_.Exception.Message
@@ -333,13 +506,12 @@ $cliCheckButton.Add_Click({
         if (-not $profile) {
             throw "Select a profile first."
         }
-        $workspace = $workspaceBox.Text.Trim()
-        if (-not $workspace -or -not (Test-Path -LiteralPath $workspace -PathType Container)) {
+        if (-not (Test-WorkspaceReady)) {
             throw "Choose an existing project folder."
         }
-        Set-Status "Running Codex CLI check. This can take a little while..."
+        Set-Status "Running a real Codex CLI check..."
         $form.Refresh()
-        $result = Invoke-CliCheck -Profile $profile -Workspace $workspace
+        $result = Invoke-CliCheck -Profile $profile -Workspace $workspaceBox.Text.Trim()
         Set-Status (@(
             "CLI check exit code: $($result.ExitCode)"
             "STDOUT:"
@@ -370,7 +542,7 @@ $httpTestButton.Add_Click({
     }
 })
 
-$openHomeButton.Add_Click({
+$homeButton.Add_Click({
     try {
         $profile = Get-SelectedProfile
         if (-not $profile) {
@@ -386,10 +558,9 @@ $openHomeButton.Add_Click({
     }
 })
 
-$openLauncherButton.Add_Click({
+$openLaunchersButton.Add_Click({
     try {
-        $root = Get-CodexApiLauncherRoot
-        $launcherDir = Join-Path $root "launchers"
+        $launcherDir = Join-Path (Get-CodexApiLauncherRoot) "launchers"
         if (-not (Test-Path -LiteralPath $launcherDir)) {
             New-Item -ItemType Directory -Force -Path $launcherDir | Out-Null
         }
@@ -398,10 +569,6 @@ $openLauncherButton.Add_Click({
     catch {
         Set-Status $_.Exception.Message
     }
-})
-
-$exitButton.Add_Click({
-    $form.Close()
 })
 
 Refresh-Profiles
