@@ -23,15 +23,16 @@ if ($SmokeTest) {
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $script:Colors = @{
-    Window = [System.Drawing.Color]::FromArgb(245, 247, 250)
+    Window = [System.Drawing.Color]::FromArgb(246, 247, 245)
     Surface = [System.Drawing.Color]::White
-    Border = [System.Drawing.Color]::FromArgb(218, 224, 232)
-    Text = [System.Drawing.Color]::FromArgb(32, 36, 42)
-    Muted = [System.Drawing.Color]::FromArgb(91, 99, 111)
-    Primary = [System.Drawing.Color]::FromArgb(36, 92, 161)
-    PrimaryDark = [System.Drawing.Color]::FromArgb(24, 65, 119)
-    SoftBlue = [System.Drawing.Color]::FromArgb(232, 240, 252)
-    Warning = [System.Drawing.Color]::FromArgb(122, 83, 18)
+    Border = [System.Drawing.Color]::FromArgb(214, 219, 216)
+    Text = [System.Drawing.Color]::FromArgb(31, 35, 33)
+    Muted = [System.Drawing.Color]::FromArgb(87, 94, 91)
+    Primary = [System.Drawing.Color]::FromArgb(28, 98, 86)
+    PrimaryDark = [System.Drawing.Color]::FromArgb(17, 70, 61)
+    SoftBlue = [System.Drawing.Color]::FromArgb(228, 242, 237)
+    Warning = [System.Drawing.Color]::FromArgb(126, 83, 24)
+    Info = [System.Drawing.Color]::FromArgb(246, 249, 248)
 }
 
 function New-UiFont {
@@ -39,7 +40,9 @@ function New-UiFont {
         [float]$Size = 9.0,
         [System.Drawing.FontStyle]$Style = [System.Drawing.FontStyle]::Regular
     )
-    return New-Object System.Drawing.Font("Segoe UI", $Size, $Style)
+    $families = [System.Drawing.FontFamily]::Families.Name
+    $fontName = if ($families -contains "Microsoft YaHei UI") { "Microsoft YaHei UI" } else { "Segoe UI" }
+    return New-Object System.Drawing.Font($fontName, $Size, $Style)
 }
 
 function New-Panel {
@@ -121,7 +124,7 @@ function New-ReadOnlyBox {
     $box.ReadOnly = $true
     $box.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
     $box.Font = New-UiFont
-    $box.BackColor = [System.Drawing.Color]::FromArgb(250, 251, 253)
+    $box.BackColor = $script:Colors.Info
     $box.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
     return $box
 }
@@ -139,7 +142,7 @@ function Resolve-ShellExecutable {
     if ($powershell) {
         return $powershell.Source
     }
-    throw "Could not find pwsh.exe or powershell.exe."
+    throw "没有找到 pwsh.exe 或 powershell.exe。"
 }
 
 function Invoke-CliCheck {
@@ -190,13 +193,13 @@ function Invoke-CliCheck {
 function Format-TestResult {
     param($Result)
     return @(
-        "HTTP smoke test"
-        "Status: $($Result.Status)"
-        "OK: $($Result.Ok)"
-        "Models HTTP: $($Result.ModelsHttpStatus)"
-        "Responses HTTP: $($Result.ResponsesHttpStatus)"
-        "Model count: $($Result.ModelCount)"
-        "Details: $($Result.Details)"
+        "HTTP 连通性检查"
+        "状态: $($Result.Status)"
+        "是否通过: $($Result.Ok)"
+        "/models HTTP: $($Result.ModelsHttpStatus)"
+        "/responses HTTP: $($Result.ResponsesHttpStatus)"
+        "模型数量: $($Result.ModelCount)"
+        "详情: $($Result.Details)"
     ) -join [Environment]::NewLine
 }
 
@@ -209,7 +212,7 @@ function Get-ProfileDisplay {
 }
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "Codex API Launcher"
+$form.Text = "Codex API 多开启动器"
 $form.StartPosition = "CenterScreen"
 $form.Size = New-Object System.Drawing.Size(980, 650)
 $form.MinimumSize = New-Object System.Drawing.Size(920, 600)
@@ -217,10 +220,10 @@ $form.BackColor = $script:Colors.Window
 $form.Font = New-UiFont
 $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Font
 
-$headerTitle = New-Label -Text "Codex API Launcher" -X 24 -Y 18 -Width 360 -Height 34 -Size 16 -Style ([System.Drawing.FontStyle]::Bold)
+$headerTitle = New-Label -Text "Codex API 多开启动器" -X 24 -Y 18 -Width 360 -Height 34 -Size 16 -Style ([System.Drawing.FontStyle]::Bold)
 $form.Controls.Add($headerTitle)
 
-$headerText = New-Label -Text "Pick an API profile, choose a project folder, and open an isolated Codex CLI window." -X 24 -Y 54 -Width 820 -Height 24 -Color $script:Colors.Muted
+$headerText = New-Label -Text "选择一个 API 配置，再选择项目文件夹，然后打开独立的 Codex CLI 终端窗口。" -X 24 -Y 54 -Width 820 -Height 24 -Color $script:Colors.Muted
 $form.Controls.Add($headerText)
 
 $leftPanel = New-Panel -X 24 -Y 94 -Width 292 -Height 500
@@ -229,10 +232,10 @@ $form.Controls.Add($leftPanel)
 $rightPanel = New-Panel -X 334 -Y 94 -Width 622 -Height 500
 $form.Controls.Add($rightPanel)
 
-$profilesTitle = New-Label -Text "Profiles" -X 16 -Y 14 -Width 160 -Height 26 -Size 11 -Style ([System.Drawing.FontStyle]::Bold)
+$profilesTitle = New-Label -Text "API 配置" -X 16 -Y 14 -Width 160 -Height 26 -Size 11 -Style ([System.Drawing.FontStyle]::Bold)
 $leftPanel.Controls.Add($profilesTitle)
 
-$refreshButton = New-Button -Text "Refresh" -X 186 -Y 12 -Width 84 -Height 30
+$refreshButton = New-Button -Text "刷新" -X 186 -Y 12 -Width 84 -Height 30
 $leftPanel.Controls.Add($refreshButton)
 
 $profileList = New-Object System.Windows.Forms.ListBox
@@ -240,25 +243,25 @@ $profileList.Location = New-Object System.Drawing.Point(16, 52)
 $profileList.Size = New-Object System.Drawing.Size(254, 296)
 $profileList.Font = New-UiFont -Size 9.5
 $profileList.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-$profileList.BackColor = [System.Drawing.Color]::FromArgb(250, 251, 253)
+$profileList.BackColor = $script:Colors.Info
 $leftPanel.Controls.Add($profileList)
 
-$profileHint = New-Label -Text "Profiles keep API credentials and Codex state separate. Project folders are selected at launch time." -X 16 -Y 362 -Width 254 -Height 54 -Color $script:Colors.Muted
+$profileHint = New-Label -Text "每个配置都有独立的 API 凭据、CODEX_HOME、会话和日志。项目文件夹在启动时选择。" -X 16 -Y 362 -Width 254 -Height 54 -Color $script:Colors.Muted
 $leftPanel.Controls.Add($profileHint)
 
-$openLaunchersButton = New-Button -Text "Open launcher scripts" -X 16 -Y 438 -Width 254 -Height 34
+$openLaunchersButton = New-Button -Text "打开快捷启动脚本目录" -X 16 -Y 438 -Width 254 -Height 34
 $leftPanel.Controls.Add($openLaunchersButton)
 
-$selectedTitle = New-Label -Text "Selected profile" -X 20 -Y 16 -Width 200 -Height 28 -Size 12 -Style ([System.Drawing.FontStyle]::Bold)
+$selectedTitle = New-Label -Text "当前配置" -X 20 -Y 16 -Width 200 -Height 28 -Size 12 -Style ([System.Drawing.FontStyle]::Bold)
 $rightPanel.Controls.Add($selectedTitle)
 
-$providerNameLabel = New-Label -Text "No profile selected" -X 20 -Y 48 -Width 372 -Height 24 -Size 10 -Style ([System.Drawing.FontStyle]::Bold)
+$providerNameLabel = New-Label -Text "尚未选择配置" -X 20 -Y 48 -Width 372 -Height 24 -Size 10 -Style ([System.Drawing.FontStyle]::Bold)
 $rightPanel.Controls.Add($providerNameLabel)
 
 $providerMetaLabel = New-Label -Text "" -X 20 -Y 74 -Width 570 -Height 42 -Color $script:Colors.Muted
 $rightPanel.Controls.Add($providerMetaLabel)
 
-$homeButton = New-Button -Text "Open CODEX_HOME" -X 446 -Y 42 -Width 146 -Height 32
+$homeButton = New-Button -Text "打开 CODEX_HOME" -X 438 -Y 42 -Width 154 -Height 32
 $rightPanel.Controls.Add($homeButton)
 
 $separator1 = New-Object System.Windows.Forms.Label
@@ -267,10 +270,10 @@ $separator1.Location = New-Object System.Drawing.Point(20, 124)
 $separator1.Size = New-Object System.Drawing.Size(572, 2)
 $rightPanel.Controls.Add($separator1)
 
-$projectTitle = New-Label -Text "Project folder" -X 20 -Y 146 -Width 180 -Height 26 -Size 11 -Style ([System.Drawing.FontStyle]::Bold)
+$projectTitle = New-Label -Text "项目文件夹" -X 20 -Y 146 -Width 180 -Height 26 -Size 11 -Style ([System.Drawing.FontStyle]::Bold)
 $rightPanel.Controls.Add($projectTitle)
 
-$savedProjectLabel = New-Label -Text "Saved default: none" -X 20 -Y 174 -Width 570 -Height 24 -Color $script:Colors.Muted
+$savedProjectLabel = New-Label -Text "已保存默认项目: 无" -X 20 -Y 174 -Width 570 -Height 24 -Color $script:Colors.Muted
 $rightPanel.Controls.Add($savedProjectLabel)
 
 $workspaceBox = New-Object System.Windows.Forms.TextBox
@@ -279,21 +282,21 @@ $workspaceBox.Size = New-Object System.Drawing.Size(456, 28)
 $workspaceBox.Font = New-UiFont -Size 9.5
 $rightPanel.Controls.Add($workspaceBox)
 
-$browseButton = New-Button -Text "Browse" -X 488 -Y 200 -Width 104 -Height 34 -Primary
+$browseButton = New-Button -Text "选择文件夹" -X 488 -Y 200 -Width 104 -Height 34 -Primary
 $rightPanel.Controls.Add($browseButton)
 
 $rememberCheck = New-Object System.Windows.Forms.CheckBox
-$rememberCheck.Text = "Remember this folder for the selected profile"
+$rememberCheck.Text = "启动时顺便记住这个项目文件夹"
 $rememberCheck.Location = New-Object System.Drawing.Point(20, 244)
 $rememberCheck.Size = New-Object System.Drawing.Size(300, 24)
 $rememberCheck.Font = New-UiFont
 $rememberCheck.BackColor = $script:Colors.Surface
 $rightPanel.Controls.Add($rememberCheck)
 
-$saveProjectButton = New-Button -Text "Save default" -X 330 -Y 240 -Width 120 -Height 32
+$saveProjectButton = New-Button -Text "保存默认" -X 330 -Y 240 -Width 120 -Height 32
 $rightPanel.Controls.Add($saveProjectButton)
 
-$clearProjectButton = New-Button -Text "Clear default" -X 464 -Y 240 -Width 128 -Height 32
+$clearProjectButton = New-Button -Text "清除默认" -X 464 -Y 240 -Width 128 -Height 32
 $rightPanel.Controls.Add($clearProjectButton)
 
 $separator2 = New-Object System.Windows.Forms.Label
@@ -302,14 +305,14 @@ $separator2.Location = New-Object System.Drawing.Point(20, 292)
 $separator2.Size = New-Object System.Drawing.Size(572, 2)
 $rightPanel.Controls.Add($separator2)
 
-$startButton = New-Button -Text "Start Codex" -X 20 -Y 316 -Width 170 -Height 42 -Primary
+$startButton = New-Button -Text "启动 Codex" -X 20 -Y 316 -Width 170 -Height 42 -Primary
 $startButton.Font = New-UiFont -Size 10.5 -Style ([System.Drawing.FontStyle]::Bold)
 $rightPanel.Controls.Add($startButton)
 
-$cliCheckButton = New-Button -Text "CLI Check" -X 206 -Y 320 -Width 112 -Height 36
+$cliCheckButton = New-Button -Text "CLI 检查" -X 206 -Y 320 -Width 112 -Height 36
 $rightPanel.Controls.Add($cliCheckButton)
 
-$httpTestButton = New-Button -Text "HTTP Test" -X 332 -Y 320 -Width 112 -Height 36
+$httpTestButton = New-Button -Text "HTTP 检查" -X 332 -Y 320 -Width 112 -Height 36
 $rightPanel.Controls.Add($httpTestButton)
 
 $statusText = New-ReadOnlyBox -X 20 -Y 382 -Width 572 -Height 92
@@ -348,25 +351,25 @@ function Update-Buttons {
 function Update-SelectedProfile {
     $profile = Get-SelectedProfile
     if (-not $profile) {
-        $providerNameLabel.Text = "No profile selected"
-        $providerMetaLabel.Text = "Create a profile with New-CodexApiProfile, then refresh this list."
-        $savedProjectLabel.Text = "Saved default: none"
+        $providerNameLabel.Text = "尚未选择配置"
+        $providerMetaLabel.Text = "先用 New-CodexApiProfile 创建配置，然后点击刷新。"
+        $savedProjectLabel.Text = "已保存默认项目: 无"
         $workspaceBox.Text = ""
         Update-Buttons
         return
     }
 
     $providerNameLabel.Text = "$($profile.Name) [$($profile.Id)]"
-    $providerMetaLabel.Text = "Model: $($profile.Model)`r`nBase URL: $($profile.BaseUrl)`r`nEnv: $($profile.EnvKeyName)"
+    $providerMetaLabel.Text = "模型: $($profile.Model)`r`nBase URL: $($profile.BaseUrl)`r`n环境变量: $($profile.EnvKeyName)"
 
     if ($profile.Workspace) {
-        $savedProjectLabel.Text = "Saved default: $($profile.Workspace)"
+        $savedProjectLabel.Text = "已保存默认项目: $($profile.Workspace)"
         if (-not $workspaceBox.Text) {
             $workspaceBox.Text = [string]$profile.Workspace
         }
     }
     else {
-        $savedProjectLabel.Text = "Saved default: none"
+        $savedProjectLabel.Text = "已保存默认项目: 无"
         $workspaceBox.Text = ""
     }
     Update-Buttons
@@ -384,10 +387,10 @@ function Refresh-Profiles {
 
     if ($profileList.Items.Count -gt 0) {
         $profileList.SelectedIndex = 0
-        Set-Status "Loaded $($profiles.Count) profile(s). Choose a project folder to start."
+        Set-Status "已加载 $($profiles.Count) 个 API 配置。选择项目文件夹后即可启动。"
     }
     else {
-        Set-Status "No profiles found yet."
+        Set-Status "还没有找到任何 API 配置。请先用 New-CodexApiProfile 创建。"
     }
     Update-SelectedProfile
 }
@@ -413,7 +416,7 @@ $refreshButton.Add_Click({
 $browseButton.Add_Click({
     try {
         $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dialog.Description = "Choose the project folder for Codex"
+        $dialog.Description = "选择要用 Codex 打开的项目文件夹"
         $dialog.ShowNewFolderButton = $true
         if ((Test-WorkspaceReady)) {
             $dialog.SelectedPath = $workspaceBox.Text.Trim()
@@ -423,7 +426,7 @@ $browseButton.Add_Click({
         }
         if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
             $workspaceBox.Text = $dialog.SelectedPath
-            Set-Status "Project folder selected."
+            Set-Status "已选择项目文件夹。"
         }
     }
     catch {
@@ -435,13 +438,13 @@ $saveProjectButton.Add_Click({
     try {
         $profile = Get-SelectedProfile
         if (-not $profile) {
-            throw "Select a profile first."
+            throw "请先选择一个 API 配置。"
         }
         if (-not (Test-WorkspaceReady)) {
-            throw "Choose an existing project folder before saving."
+            throw "保存前请先选择一个已经存在的项目文件夹。"
         }
         $result = Set-CodexApiProfileWorkspace -Id $profile.Id -Workspace $workspaceBox.Text.Trim()
-        Set-Status "Saved default project folder for $($profile.Id)."
+        Set-Status "已为 $($profile.Id) 保存默认项目文件夹。"
         Refresh-Profiles
         foreach ($item in $profileList.Items) {
             if ([string]$item -like "*[$($profile.Id)]") {
@@ -459,11 +462,11 @@ $clearProjectButton.Add_Click({
     try {
         $profile = Get-SelectedProfile
         if (-not $profile) {
-            throw "Select a profile first."
+            throw "请先选择一个 API 配置。"
         }
         Set-CodexApiProfileWorkspace -Id $profile.Id -Clear | Out-Null
         $workspaceBox.Text = ""
-        Set-Status "Cleared the saved project folder for $($profile.Id)."
+        Set-Status "已清除 $($profile.Id) 的默认项目文件夹。"
         Refresh-Profiles
         foreach ($item in $profileList.Items) {
             if ([string]$item -like "*[$($profile.Id)]") {
@@ -481,10 +484,10 @@ $startButton.Add_Click({
     try {
         $profile = Get-SelectedProfile
         if (-not $profile) {
-            throw "Select a profile first."
+            throw "请先选择一个 API 配置。"
         }
         if (-not (Test-WorkspaceReady)) {
-            throw "Choose an existing project folder."
+            throw "请选择一个已经存在的项目文件夹。"
         }
 
         $workspace = $workspaceBox.Text.Trim()
@@ -492,11 +495,11 @@ $startButton.Add_Click({
             Set-CodexApiProfileWorkspace -Id $profile.Id -Workspace $workspace | Out-Null
         }
         $result = Start-CodexApiProfile -Id $profile.Id -Workspace $workspace
-        Set-Status "Started $($profile.Id) in a new Codex terminal.`r`nProject: $workspace`r`nCODEX_HOME: $($result.CodexHome)"
+        Set-Status "已在新的终端窗口启动 $($profile.Id)。`r`n项目: $workspace`r`nCODEX_HOME: $($result.CodexHome)"
     }
     catch {
         Set-Status $_.Exception.Message
-        [System.Windows.Forms.MessageBox]::Show($form, $_.Exception.Message, "Start failed", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+        [System.Windows.Forms.MessageBox]::Show($form, $_.Exception.Message, "启动失败", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
     }
 })
 
@@ -504,20 +507,20 @@ $cliCheckButton.Add_Click({
     try {
         $profile = Get-SelectedProfile
         if (-not $profile) {
-            throw "Select a profile first."
+            throw "请先选择一个 API 配置。"
         }
         if (-not (Test-WorkspaceReady)) {
-            throw "Choose an existing project folder."
+            throw "请选择一个已经存在的项目文件夹。"
         }
-        Set-Status "Running a real Codex CLI check..."
+        Set-Status "正在运行真实 Codex CLI 检查..."
         $form.Refresh()
         $result = Invoke-CliCheck -Profile $profile -Workspace $workspaceBox.Text.Trim()
         Set-Status (@(
-            "CLI check exit code: $($result.ExitCode)"
-            "STDOUT:"
+            "CLI 检查退出码: $($result.ExitCode)"
+            "标准输出:"
             $result.Stdout
             ""
-            "STDERR:"
+            "标准错误:"
             $result.Stderr
         ) -join [Environment]::NewLine)
     }
@@ -530,9 +533,9 @@ $httpTestButton.Add_Click({
     try {
         $profile = Get-SelectedProfile
         if (-not $profile) {
-            throw "Select a profile first."
+            throw "请先选择一个 API 配置。"
         }
-        Set-Status "Running HTTP smoke test..."
+        Set-Status "正在运行 HTTP 连通性检查..."
         $form.Refresh()
         $result = Test-CodexApiProfile -Id $profile.Id
         Set-Status (Format-TestResult -Result $result)
@@ -546,7 +549,7 @@ $homeButton.Add_Click({
     try {
         $profile = Get-SelectedProfile
         if (-not $profile) {
-            throw "Select a profile first."
+            throw "请先选择一个 API 配置。"
         }
         if (-not (Test-Path -LiteralPath $profile.CodexHome)) {
             New-Item -ItemType Directory -Force -Path $profile.CodexHome | Out-Null

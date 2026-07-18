@@ -1,6 +1,6 @@
 Set-StrictMode -Version 2.0
 
-$script:LauncherVersion = "0.1.0"
+$script:LauncherVersion = "0.1.1"
 
 function Get-CodexApiLauncherRoot {
     [CmdletBinding()]
@@ -15,7 +15,7 @@ function Get-CodexApiLauncherRoot {
         $localAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
     }
     if (-not $localAppData) {
-        throw "Could not resolve LOCALAPPDATA. Set CODEX_API_LAUNCHER_HOME explicitly."
+        throw "无法解析 LOCALAPPDATA。请显式设置 CODEX_API_LAUNCHER_HOME。"
     }
 
     return (Join-Path $localAppData "CodexApiLauncher")
@@ -107,13 +107,13 @@ function ConvertTo-SafeProfileId {
     $safe = $Id.Trim().ToLowerInvariant() -replace "[^a-z0-9_-]", "-"
     $safe = $safe.Trim("-_")
     if (-not $safe) {
-        throw "Profile id must contain at least one letter or number."
+        throw "Profile id 至少需要包含一个字母或数字。"
     }
     if ($safe.Length -gt 40) {
         $safe = $safe.Substring(0, 40).Trim("-_")
     }
     if ($safe -notmatch "^[a-z0-9][a-z0-9_-]*$") {
-        throw "Profile id '$Id' is invalid after normalization."
+        throw "Profile id '$Id' 规范化后仍然无效。"
     }
     return $safe
 }
@@ -143,10 +143,10 @@ function Test-BaseUrl {
 
     $uri = $null
     if (-not [Uri]::TryCreate($BaseUrl.Trim(), [UriKind]::Absolute, [ref]$uri)) {
-        throw "BaseUrl must be an absolute http or https URL."
+        throw "BaseUrl 必须是完整的 http 或 https URL。"
     }
     if ($uri.Scheme -ne "http" -and $uri.Scheme -ne "https") {
-        throw "BaseUrl must use http or https."
+        throw "BaseUrl 必须使用 http 或 https。"
     }
     return $uri.AbsoluteUri.TrimEnd("/")
 }
@@ -217,12 +217,12 @@ function Read-ProfileApiKey {
 
     $secretPath = Get-ProfileSecretPath -Id $Profile.id
     if (-not (Test-Path -LiteralPath $secretPath)) {
-        throw "No API key is stored for profile '$($Profile.id)'. Run Set-CodexApiProfileApiKey -Id '$($Profile.id)' -ApiKey (Read-Host -AsSecureString 'API key')."
+        throw "Profile '$($Profile.id)' 还没有保存 API Key。请运行 Set-CodexApiProfileApiKey -Id '$($Profile.id)' -ApiKey (Read-Host -AsSecureString 'API Key')。"
     }
 
     $secret = Read-JsonFile -Path $secretPath -DefaultValue $null
     if ($null -eq $secret -or -not $secret.protectedApiKey) {
-        throw "Stored API key file is missing or invalid: $secretPath"
+        throw "已保存的 API Key 文件缺失或无效: $secretPath"
     }
 
     $secure = ConvertTo-SecureString $secret.protectedApiKey
@@ -298,7 +298,7 @@ function New-CodexApiProfile {
     $state = Read-State
     $existing = Get-ProfileById -State $state -Id $safeId
     if ($existing -and -not $Force) {
-        throw "Profile '$safeId' already exists. Use -Force to replace it."
+        throw "Profile '$safeId' 已存在。请使用 -Force 覆盖。"
     }
 
     $now = (Get-Date).ToUniversalTime().ToString("o")
@@ -371,7 +371,7 @@ function Set-CodexApiProfileApiKey {
     $state = Read-State
     $profile = Get-ProfileById -State $state -Id $Id
     if (-not $profile) {
-        throw "Profile '$Id' was not found."
+        throw "没有找到 Profile '$Id'。"
     }
     Save-ProfileSecret -Profile $profile -ApiKey $ApiKey
 
@@ -394,7 +394,7 @@ function Set-CodexApiProfileWorkspace {
     $state = Read-State
     $profile = Get-ProfileById -State $state -Id $Id
     if (-not $profile) {
-        throw "Profile '$Id' was not found."
+        throw "没有找到 Profile '$Id'。"
     }
 
     if ($Clear) {
@@ -402,10 +402,10 @@ function Set-CodexApiProfileWorkspace {
     }
     else {
         if (-not $Workspace) {
-            throw "Provide -Workspace or use -Clear."
+            throw "请提供 -Workspace，或使用 -Clear。"
         }
         if (-not (Test-Path -LiteralPath $Workspace -PathType Container)) {
-            throw "Workspace does not exist: $Workspace"
+            throw "项目文件夹不存在: $Workspace"
         }
         $profile.workspace = [System.IO.Path]::GetFullPath($Workspace)
     }
@@ -428,7 +428,7 @@ function Get-CodexApiProfile {
     $state = Read-State
     $profile = Get-ProfileById -State $state -Id $Id
     if (-not $profile) {
-        throw "Profile '$Id' was not found."
+        throw "没有找到 Profile '$Id'。"
     }
     return $profile
 }
@@ -515,7 +515,7 @@ function Test-CodexApiProfile {
     try {
         $modelsResult = Invoke-ProviderHttp -Method GET -Url $modelsUrl -ApiKey $apiKey -TimeoutSeconds $TimeoutSeconds
         if ($modelsResult.StatusCode -eq 401 -or $modelsResult.StatusCode -eq 403) {
-            $details.Add("The provider rejected the API key at /models.")
+            $details.Add("Provider 在 /models 拒绝了这个 API Key。")
             return [pscustomobject]@{
                 Ok = $false
                 Status = "auth_failed"
@@ -539,7 +539,7 @@ function Test-CodexApiProfile {
             }
         }
         catch {
-            $details.Add("Could not parse /models as JSON.")
+            $details.Add("无法将 /models 响应解析为 JSON。")
         }
     }
     catch {
@@ -588,7 +588,7 @@ function Test-CodexApiProfile {
             ModelsHttpStatus = $modelsResult.StatusCode
             ResponsesHttpStatus = $responsesResult.StatusCode
             ModelCount = $modelCount
-            Details = "The provider accepted a minimal /responses request."
+            Details = "Provider 接受了最小 /responses 请求。"
         }
     }
 
@@ -643,7 +643,7 @@ function Resolve-PowerShellExecutable {
     if ($cmd) {
         return $cmd.Source
     }
-    throw "Could not find pwsh.exe or powershell.exe."
+    throw "没有找到 pwsh.exe 或 powershell.exe。"
 }
 
 function Invoke-CodexApiProfileInCurrentWindow {
@@ -677,7 +677,7 @@ function Invoke-CodexApiProfileInCurrentWindow {
 
         $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
         if (-not $codexCommand) {
-            throw "codex was not found on PATH."
+            throw "PATH 中没有找到 codex 命令。"
         }
         & $codexCommand.Source @args
     }
@@ -743,10 +743,10 @@ function Remove-CodexApiProfile {
     $state = Read-State
     $profile = Get-ProfileById -State $state -Id $Id
     if (-not $profile) {
-        throw "Profile '$Id' was not found."
+        throw "没有找到 Profile '$Id'。"
     }
 
-    if ($PSCmdlet.ShouldProcess($profile.id, "Remove Codex API profile")) {
+    if ($PSCmdlet.ShouldProcess($profile.id, "删除 Codex API profile")) {
         $state.profiles = @($state.profiles | Where-Object { -not [string]::Equals($_.id, $profile.id, [StringComparison]::OrdinalIgnoreCase) })
         Write-State -State $state
 

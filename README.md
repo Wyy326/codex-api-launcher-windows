@@ -1,84 +1,78 @@
-# Codex API Launcher for Windows
+# Codex API 多开启动器 for Windows
 
-Lightweight PowerShell launcher for running multiple Codex CLI instances with isolated third-party API provider configs.
+一个轻量 PowerShell 工具，用来在 Windows 上启动多个彼此隔离的 Codex CLI 实例。它面向第三方 OpenAI-compatible API provider，不做 ChatGPT 登录账号隔离。
 
-This package does not implement ChatGPT account isolation. Each profile gets its own `CODEX_HOME`, `config.toml`, API key environment variable, logs, sessions, and launcher script.
+每个 API 配置都会拥有独立的 `CODEX_HOME`、`config.toml`、API Key 环境变量、日志、sessions 和快捷启动脚本。API Key 不会写入 TOML、脚本或仓库文件。
 
-## Files
+## 文件
 
-- `CodexApiLauncher.psm1` - profile manager module.
-- `Run-CodexApiProfile.ps1` - helper used by generated profile launchers.
-- `CodexApiLauncher.UI.ps1` - lightweight Windows UI for selecting a profile and project folder.
-- `Launch UI.cmd` - double-click helper for opening the UI.
-- `templates/profile.config.toml` - minimal generated config shape.
-- `examples/create-profile.example.ps1` - example profile creation command.
+- `CodexApiLauncher.psm1` - API 配置管理模块。
+- `Run-CodexApiProfile.ps1` - 生成的 profile 启动脚本会调用它。
+- `CodexApiLauncher.UI.ps1` - 中文 Windows UI，可选择 API 配置和项目文件夹。
+- `Launch UI.cmd` - 双击打开 UI 的入口。
+- `templates/profile.config.toml` - 生成的 Codex 配置模板。
+- `examples/create-profile.example.ps1` - 创建 profile 的示例脚本。
 
-## UI Launcher
+## 日常使用
 
-The launcher now has two forms:
-
-- PowerShell commands for automation and scripting.
-- A lightweight Windows UI for everyday use.
-
-Open the UI from the repository folder:
-
-```powershell
-.\CodexApiLauncher.UI.ps1
-```
-
-Or double-click:
+双击仓库里的：
 
 ```text
 Launch UI.cmd
 ```
 
-The UI lets you:
+也可以在 PowerShell 里运行：
 
-- choose an existing API profile
-- browse for a project folder
-- open a new isolated Codex CLI terminal for that folder
-- optionally save or clear a default project folder per profile
-- open the profile's `CODEX_HOME`
-- run an HTTP smoke test
-- run a real Codex CLI check for gateways that only allow Codex request shapes
+```powershell
+.\CodexApiLauncher.UI.ps1
+```
 
-## Import
+UI 支持：
 
-From the repository folder:
+- 选择已有 API 配置
+- 选择项目文件夹
+- 在新的终端窗口里启动隔离的 Codex CLI
+- 可选保存或清除某个配置的默认项目文件夹
+- 打开该配置的 `CODEX_HOME`
+- 运行 HTTP 连通性检查
+- 运行真实 Codex CLI 检查，适合只允许 CLI 请求形态的中转网关
+
+## 导入模块
+
+在仓库目录运行：
 
 ```powershell
 Import-Module ".\CodexApiLauncher.psm1" -Force
 ```
 
-By default, profile state is stored under:
+默认状态目录：
 
 ```text
 %LOCALAPPDATA%\CodexApiLauncher
 ```
 
-For testing or portable use, override it before importing or running commands:
+如需放到其他位置，可以先设置：
 
 ```powershell
 $env:CODEX_API_LAUNCHER_HOME = "D:\CodexApiLauncher"
 ```
 
-## Create a Profile
+## 创建 API 配置
 
-Use `Read-Host -AsSecureString` so the key does not land in shell history.
+建议用 `Read-Host -AsSecureString` 输入 Key，避免进入命令历史。
 
 ```powershell
-$key = Read-Host -AsSecureString "API key"
+$key = Read-Host -AsSecureString "API Key"
 
 New-CodexApiProfile `
   -Id "shuaiapi" `
   -Name "ShuaiAPI" `
   -BaseUrl "https://api.shuaiapi.com/v1" `
   -Model "gpt-5.6-luna" `
-  -Workspace "D:\workplace\Test" `
   -ApiKey $key
 ```
 
-The generated profile config will look like:
+生成的 `config.toml` 形态：
 
 ```toml
 model_provider = "api_shuaiapi"
@@ -94,67 +88,67 @@ wire_api = "responses"
 requires_openai_auth = false
 ```
 
-API keys are stored separately using the current Windows user's protected secure-string format. They are not written to `config.toml` or generated launch scripts.
+API Key 会使用当前 Windows 用户的 protected secure-string 形式单独保存，不会写进 `config.toml` 或生成的启动脚本。
 
-## List and Test
+## 查看和检查
 
 ```powershell
 List-CodexApiProfiles
 Test-CodexApiProfile -Id "shuaiapi"
 ```
 
-`Test-CodexApiProfile` probes:
+`Test-CodexApiProfile` 会请求：
 
 - `GET <base_url>/models`
 - `POST <base_url>/responses`
 
-## Start Codex
-
-Open a new terminal window:
-
-```powershell
-Start-CodexApiProfile -Id "shuaiapi"
-```
-
-Run in the current terminal:
-
-```powershell
-Start-CodexApiProfile -Id "shuaiapi" -InCurrentWindow
-```
-
-Pass Codex CLI arguments:
+如果你的中转只支持 Codex CLI 请求形态，优先在 UI 里用“CLI 检查”，或运行：
 
 ```powershell
 Start-CodexApiProfile -Id "shuaiapi" -InCurrentWindow -CodexArgs @("exec", "--skip-git-repo-check", "Reply with OK")
 ```
 
-Each profile also gets a generated launcher script:
+## 启动 Codex
+
+打开新的终端窗口：
+
+```powershell
+Start-CodexApiProfile -Id "shuaiapi" -Workspace "D:\workplace\your-project"
+```
+
+在当前终端运行：
+
+```powershell
+Start-CodexApiProfile -Id "shuaiapi" -Workspace "D:\workplace\your-project" -InCurrentWindow
+```
+
+每个 profile 也会生成一个快捷启动脚本：
 
 ```text
 %LOCALAPPDATA%\CodexApiLauncher\launchers\<id>.ps1
 ```
 
-Set or clear an optional default project folder:
+项目文件夹是可选默认值，可以随时保存或清除：
 
 ```powershell
-Set-CodexApiProfileWorkspace -Id "shuaiapi" -Workspace "D:\workplace\Test"
+Set-CodexApiProfileWorkspace -Id "shuaiapi" -Workspace "D:\workplace\your-project"
 Set-CodexApiProfileWorkspace -Id "shuaiapi" -Clear
 ```
 
-## Remove
+## 删除配置
 
-Remove registry entry and encrypted key only:
+只删除登记项和加密 Key：
 
 ```powershell
 Remove-CodexApiProfile -Id "shuaiapi"
 ```
 
-Remove profile files too:
+连 profile 文件一起删除：
 
 ```powershell
 Remove-CodexApiProfile -Id "shuaiapi" -DeleteFiles
 ```
 
-## Reference Repo
+## 参考实现说明
 
-The external beta project was reviewed only as a reference. It currently has no repository license metadata, so this package is a fresh PowerShell implementation rather than a source merge.
+外部 beta 项目只作为架构参考阅读。因为它当前没有明确仓库许可证，本项目没有复制或合并其源码，而是重新实现了最小可用版本。
