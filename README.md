@@ -8,8 +8,38 @@ This package does not implement ChatGPT account isolation. Each profile gets its
 
 - `CodexApiLauncher.psm1` - profile manager module.
 - `Run-CodexApiProfile.ps1` - helper used by generated profile launchers.
+- `CodexApiLauncher.UI.ps1` - lightweight Windows UI for selecting a profile and project folder.
+- `Launch UI.cmd` - double-click helper for opening the UI.
 - `templates/profile.config.toml` - minimal generated config shape.
 - `examples/create-profile.example.ps1` - example profile creation command.
+
+## UI Launcher
+
+The launcher now has two forms:
+
+- PowerShell commands for automation and scripting.
+- A lightweight Windows UI for everyday use.
+
+Open the UI from the repository folder:
+
+```powershell
+.\CodexApiLauncher.UI.ps1
+```
+
+Or double-click:
+
+```text
+Launch UI.cmd
+```
+
+The UI lets you:
+
+- choose an existing API profile
+- browse for a project folder
+- open a new isolated Codex CLI terminal for that folder
+- open the profile's `CODEX_HOME`
+- run an HTTP smoke test
+- run a real Codex CLI check for gateways that only allow Codex request shapes
 
 ## Import
 

@@ -6,3 +6,4 @@
 - Generate per-profile `CODEX_HOME`, `config.toml`, and launcher scripts.
 - Store API keys outside TOML using the current Windows user's protected secure-string format.
 - Add provider smoke tests for `/models` and `/responses`.
+- Add lightweight Windows UI for selecting a profile and project folder before launching Codex.
