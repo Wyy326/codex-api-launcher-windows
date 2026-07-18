@@ -1,0 +1,16 @@
+# Local launcher state
+profiles.json
+profiles/
+secrets/
+launchers/
+
+# PowerShell noise
+*.log
+*.tmp
+*.bak
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
