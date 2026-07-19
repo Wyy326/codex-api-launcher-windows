@@ -17,5 +17,6 @@ The zip files are ignored by Git. Keep them here for local recovery and manual u
 | `CodexApiLauncherDesktop-0.3.2-local-win-x64.zip` | Build with embedded app logo and desktop shortcut icon support. |
 | `CodexApiLauncherDesktop-0.3.3-local-win-x64.zip` | Fixes button contrast, adds real nav pages, and supports `/models` model picker. |
 | `CodexApiLauncherDesktop-0.3.4-local-win-x64.zip` | Removes Quick Start, keeps refresh icon contrast, and widens the right-side workspace. |
+| `CodexApiLauncherDesktop-0.3.5-local-win-x64.zip` | Keeps refresh from dimming controls, removes gray fill from refresh states, and expands dashboard content across the right side. |
 
 If a new package is built from the current source tree, place it here as a local artifact and update this index.

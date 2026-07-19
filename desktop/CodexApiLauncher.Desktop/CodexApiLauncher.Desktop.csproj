@@ -7,9 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>CodexApiLauncher</AssemblyName>
     <RootNamespace>CodexApiLauncher.Desktop</RootNamespace>
-    <Version>0.3.4</Version>
-    <FileVersion>0.3.4.0</FileVersion>
-    <AssemblyVersion>0.3.4.0</AssemblyVersion>
+    <Version>0.3.5</Version>
+    <FileVersion>0.3.5.0</FileVersion>
+    <AssemblyVersion>0.3.5.0</AssemblyVersion>
     <Product>CodexCLI API 多开启动器</Product>
     <Company>Wyy326</Company>
     <ApplicationIcon>..\..\assets\CodexApiLauncher.ico</ApplicationIcon>

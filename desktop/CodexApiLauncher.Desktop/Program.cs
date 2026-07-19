@@ -96,6 +96,7 @@ internal sealed class LauncherForm : Form
     private Button fetchModelsButton = null!;
     private Button cliCheckButton = null!;
     private Button httpTestButton = null!;
+    private Button browseWorkspaceButton = null!;
     private Button saveProjectButton = null!;
     private Button clearProjectButton = null!;
     private Button homeButton = null!;
@@ -266,10 +267,13 @@ internal sealed class LauncherForm : Form
         providerApiKeyBox.PlaceholderText = "留空则保留现有 API Key";
         providerCodexHomeBox = AddCodexHomeField(rightPanel, "配置目录", 16, 228);
 
-        rightPanel.Controls.Add(NewSeparator(16, 274, 772));
+        var providerSeparator = NewSeparator(16, 274, 772);
+        providerSeparator.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        rightPanel.Controls.Add(providerSeparator);
         rightPanel.Controls.Add(NewLabel("项目文件夹", 16, 294, 180, 26, 11, FontStyle.Bold));
 
         savedProjectLabel = NewLabel("已保存默认项目：无", 16, 320, 772, 24, 9, FontStyle.Regular, mutedColor);
+        savedProjectLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         rightPanel.Controls.Add(savedProjectLabel);
 
         workspaceBox = new TextBox
@@ -281,9 +285,9 @@ internal sealed class LauncherForm : Form
         workspaceBox.TextChanged += (_, _) => UpdateButtons();
         rightPanel.Controls.Add(workspaceBox);
 
-        var browseButton = NewButton("选择文件夹", 552, 344, 112, 32, primary: true);
-        browseButton.Click += (_, _) => BrowseWorkspace();
-        rightPanel.Controls.Add(browseButton);
+        browseWorkspaceButton = NewButton("选择文件夹", 552, 344, 112, 32, primary: true);
+        browseWorkspaceButton.Click += (_, _) => BrowseWorkspace();
+        rightPanel.Controls.Add(browseWorkspaceButton);
 
         rememberCheck = new CheckBox
         {
@@ -303,7 +307,9 @@ internal sealed class LauncherForm : Form
         clearProjectButton.Click += async (_, _) => await ClearWorkspaceAsync();
         rightPanel.Controls.Add(clearProjectButton);
 
-        rightPanel.Controls.Add(NewSeparator(16, 434, 772));
+        var actionSeparator = NewSeparator(16, 434, 772);
+        actionSeparator.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        rightPanel.Controls.Add(actionSeparator);
 
         startButton = NewButton("启动 Codex", 16, 458, 156, 40, primary: true);
         startButton.Font = UiFont(10.5f, FontStyle.Bold);
@@ -337,6 +343,7 @@ internal sealed class LauncherForm : Form
         {
             Location = new Point(16, 556),
             Size = new Size(772, 152),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
             ReadOnly = true,
             ScrollBars = RichTextBoxScrollBars.Vertical,
             Font = MonoFont(9.5f),
@@ -347,6 +354,8 @@ internal sealed class LauncherForm : Form
             WordWrap = false
         };
         rightPanel.Controls.Add(statusText);
+        rightPanel.Resize += (_, _) => LayoutDashboardPage();
+        LayoutDashboardPage();
 
         configPage = BuildConfigPage();
         logsPage = BuildLogsPage();
@@ -432,6 +441,57 @@ internal sealed class LauncherForm : Form
         refreshButton.Click += async (_, _) => await RefreshProfilesAsync(SelectedProfile()?.Id);
         page.Controls.Add(refreshButton);
         return page;
+    }
+
+    private void LayoutDashboardPage()
+    {
+        if (dashboardPage is null ||
+            saveProfileButton is null ||
+            homeButton is null ||
+            providerNameBox is null ||
+            providerIdBox is null ||
+            providerModelBox is null ||
+            fetchModelsButton is null ||
+            providerBaseUrlBox is null ||
+            providerApiKeyBox is null ||
+            providerCodexHomeBox is null ||
+            migrateHomeButton is null ||
+            workspaceBox is null ||
+            browseWorkspaceButton is null ||
+            saveProjectButton is null ||
+            clearProjectButton is null ||
+            copyOutputButton is null ||
+            clearOutputButton is null ||
+            statusText is null)
+        {
+            return;
+        }
+
+        const int left = 16;
+        const int fieldLeft = 116;
+        const int gap = 12;
+        var right = Math.Max(620, dashboardPage.ClientSize.Width - left);
+
+        homeButton.Left = right - homeButton.Width;
+        saveProfileButton.Left = homeButton.Left - gap - saveProfileButton.Width;
+
+        fetchModelsButton.Left = right - fetchModelsButton.Width;
+        migrateHomeButton.Left = right - migrateHomeButton.Width;
+        browseWorkspaceButton.Left = right - browseWorkspaceButton.Width;
+        clearProjectButton.Left = right - clearProjectButton.Width;
+        saveProjectButton.Left = clearProjectButton.Left - gap - saveProjectButton.Width;
+        clearOutputButton.Left = right - clearOutputButton.Width;
+        copyOutputButton.Left = clearOutputButton.Left - gap - copyOutputButton.Width;
+
+        providerNameBox.Width = Math.Max(320, right - providerNameBox.Left);
+        providerIdBox.Width = Math.Max(320, right - providerIdBox.Left);
+        providerBaseUrlBox.Width = Math.Max(320, right - providerBaseUrlBox.Left);
+        providerApiKeyBox.Width = Math.Max(320, right - providerApiKeyBox.Left);
+        providerModelBox.Width = Math.Max(220, fetchModelsButton.Left - gap - fieldLeft);
+        providerCodexHomeBox.Width = Math.Max(220, migrateHomeButton.Left - gap - fieldLeft);
+        workspaceBox.Width = Math.Max(320, browseWorkspaceButton.Left - gap - left);
+        statusText.Width = Math.Max(480, right - statusText.Left);
+        statusText.Height = Math.Max(120, dashboardPage.ClientSize.Height - statusText.Top - 24);
     }
 
     private Panel BuildLogsPage()
@@ -881,7 +941,7 @@ internal sealed class LauncherForm : Form
                 }
 
             }));
-        });
+        }, disableControls: false);
     }
 
     private void UpdateSelectedProfile()
@@ -953,8 +1013,7 @@ internal sealed class LauncherForm : Form
     private void UpdateButtons()
     {
         var hasProfile = SelectedProfile() is not null;
-        var hasWorkspace = WorkspaceReady();
-        startButton.Enabled = !isBusy && hasProfile && hasWorkspace;
+        startButton.Enabled = !isBusy && hasProfile;
         addProfileButton.Enabled = !isBusy;
         saveProfileButton.Enabled = !isBusy && hasProfile;
         migrateHomeButton.Enabled = !isBusy && hasProfile;
@@ -962,7 +1021,7 @@ internal sealed class LauncherForm : Form
         cliCheckButton.Enabled = !isBusy && hasProfile;
         httpTestButton.Enabled = !isBusy && hasProfile;
         homeButton.Enabled = !isBusy && hasProfile;
-        saveProjectButton.Enabled = !isBusy && hasProfile && hasWorkspace;
+        saveProjectButton.Enabled = !isBusy && hasProfile;
         clearProjectButton.Enabled = !isBusy && hasProfile;
 
         providerNameBox.Enabled = !isBusy && hasProfile;
@@ -1004,7 +1063,11 @@ internal sealed class LauncherForm : Form
     private async Task SaveWorkspaceAsync()
     {
         var profile = RequireProfile();
-        var workspace = RequireWorkspace();
+        var workspace = ReadWorkspaceOrShowStatus();
+        if (workspace is null)
+        {
+            return;
+        }
         await RunUiActionAsync("正在保存默认项目文件夹...", () => bridge.SaveWorkspace(profile.Id, workspace));
         await RefreshProfilesAsync(profile.Id);
     }
@@ -1020,7 +1083,11 @@ internal sealed class LauncherForm : Form
     private async Task StartCodexAsync()
     {
         var profile = RequireProfile();
-        var workspace = RequireWorkspace();
+        var workspace = ReadWorkspaceOrShowStatus();
+        if (workspace is null)
+        {
+            return;
+        }
 
         await RunUiActionAsync("正在启动 Codex 终端...", () =>
         {
@@ -1062,12 +1129,13 @@ internal sealed class LauncherForm : Form
         return SelectedProfile() ?? throw new InvalidOperationException("请先选择一个供应商配置。");
     }
 
-    private string RequireWorkspace()
+    private string? ReadWorkspaceOrShowStatus()
     {
         var workspace = workspaceBox.Text.Trim();
         if (workspace.Length == 0 || !Directory.Exists(workspace))
         {
-            throw new InvalidOperationException("请选择一个已经存在的项目文件夹。");
+            SetStatus("请选择一个已经存在的项目文件夹。");
+            return null;
         }
         return workspace;
     }
@@ -1098,12 +1166,19 @@ internal sealed class LauncherForm : Form
             "CodexApiLauncher");
     }
 
-    private async Task<bool> RunUiActionAsync(string busyText, Action action, int timeoutMilliseconds = 120_000)
+    private async Task<bool> RunUiActionAsync(
+        string busyText,
+        Action action,
+        int timeoutMilliseconds = 120_000,
+        bool disableControls = true)
     {
         try
         {
-            isBusy = true;
-            UpdateButtons();
+            if (disableControls)
+            {
+                isBusy = true;
+                UpdateButtons();
+            }
             SetStatus(busyText);
             await Task.Run(action).WaitAsync(TimeSpan.FromMilliseconds(timeoutMilliseconds));
             return true;
@@ -1116,8 +1191,11 @@ internal sealed class LauncherForm : Form
         }
         finally
         {
-            isBusy = false;
-            UpdateButtons();
+            if (disableControls)
+            {
+                isBusy = false;
+                UpdateButtons();
+            }
         }
     }
 
@@ -1962,12 +2040,10 @@ internal sealed class LauncherButton : Button
 
         if (!string.IsNullOrWhiteSpace(IconKind))
         {
-            var iconBack = pressing
-                ? Color.FromArgb(238, 238, 238)
-                : hovering
-                    ? soft
-                    : white;
-            return (iconBack, black, Color.FromArgb(153, 153, 153));
+            var iconBorder = pressing || hovering
+                ? black
+                : Color.FromArgb(153, 153, 153);
+            return (white, black, iconBorder);
         }
 
         if (!Enabled)
