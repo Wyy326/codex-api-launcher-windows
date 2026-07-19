@@ -23,16 +23,18 @@ if ($SmokeTest) {
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $script:Colors = @{
-    Window = [System.Drawing.Color]::FromArgb(246, 247, 245)
+    Window = [System.Drawing.Color]::White
     Surface = [System.Drawing.Color]::White
-    Border = [System.Drawing.Color]::FromArgb(214, 219, 216)
-    Text = [System.Drawing.Color]::FromArgb(31, 35, 33)
-    Muted = [System.Drawing.Color]::FromArgb(87, 94, 91)
-    Primary = [System.Drawing.Color]::FromArgb(28, 98, 86)
-    PrimaryDark = [System.Drawing.Color]::FromArgb(17, 70, 61)
-    SoftBlue = [System.Drawing.Color]::FromArgb(228, 242, 237)
-    Warning = [System.Drawing.Color]::FromArgb(126, 83, 24)
-    Info = [System.Drawing.Color]::FromArgb(246, 249, 248)
+    Border = [System.Drawing.Color]::FromArgb(204, 204, 204)
+    Text = [System.Drawing.Color]::FromArgb(26, 26, 26)
+    Muted = [System.Drawing.Color]::FromArgb(77, 77, 77)
+    Primary = [System.Drawing.Color]::FromArgb(26, 26, 26)
+    PrimaryDark = [System.Drawing.Color]::Black
+    SoftBlue = [System.Drawing.Color]::FromArgb(245, 245, 245)
+    Warning = [System.Drawing.Color]::FromArgb(51, 51, 51)
+    Info = [System.Drawing.Color]::FromArgb(245, 245, 245)
+    Console = [System.Drawing.Color]::FromArgb(26, 26, 26)
+    ConsoleText = [System.Drawing.Color]::White
 }
 
 function New-UiFont {
@@ -41,8 +43,17 @@ function New-UiFont {
         [System.Drawing.FontStyle]$Style = [System.Drawing.FontStyle]::Regular
     )
     $families = [System.Drawing.FontFamily]::Families.Name
-    $fontName = if ($families -contains "Microsoft YaHei UI") { "Microsoft YaHei UI" } else { "Segoe UI" }
+    $fontName = if ($families -contains "Space Grotesk") { "Space Grotesk" } elseif ($families -contains "Microsoft YaHei UI") { "Microsoft YaHei UI" } else { "Segoe UI" }
     return New-Object System.Drawing.Font($fontName, $Size, $Style)
+}
+
+function New-MonoFont {
+    param(
+        [float]$Size = 9.0
+    )
+    $families = [System.Drawing.FontFamily]::Families.Name
+    $fontName = if ($families -contains "JetBrains Mono") { "JetBrains Mono" } elseif ($families -contains "Cascadia Mono") { "Cascadia Mono" } else { "Consolas" }
+    return New-Object System.Drawing.Font($fontName, $Size, [System.Drawing.FontStyle]::Regular)
 }
 
 function New-Panel {
@@ -123,8 +134,9 @@ function New-ReadOnlyBox {
     $box.Multiline = $true
     $box.ReadOnly = $true
     $box.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
-    $box.Font = New-UiFont
-    $box.BackColor = $script:Colors.Info
+    $box.Font = New-MonoFont -Size 9.5
+    $box.BackColor = $script:Colors.Console
+    $box.ForeColor = $script:Colors.ConsoleText
     $box.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
     return $box
 }

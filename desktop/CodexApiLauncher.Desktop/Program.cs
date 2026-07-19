@@ -41,17 +41,17 @@ internal sealed class LauncherForm : Form
 {
     private readonly PowerShellBridge bridge = new(AppContext.BaseDirectory);
 
-    private readonly Color windowColor = Color.FromArgb(246, 248, 251);
-    private readonly Color surfaceColor = Color.FromArgb(246, 248, 251);
+    private readonly Color windowColor = Color.FromArgb(255, 255, 255);
+    private readonly Color surfaceColor = Color.FromArgb(255, 255, 255);
     private readonly Color fieldColor = Color.FromArgb(255, 255, 255);
-    private readonly Color borderColor = Color.FromArgb(211, 219, 229);
-    private readonly Color textColor = Color.FromArgb(26, 32, 44);
-    private readonly Color mutedColor = Color.FromArgb(93, 105, 123);
-    private readonly Color primaryColor = Color.FromArgb(229, 244, 241);
-    private readonly Color primaryDarkColor = Color.FromArgb(21, 104, 91);
-    private readonly Color softColor = Color.FromArgb(255, 255, 255);
-    private readonly Color outputBackColor = Color.FromArgb(250, 252, 255);
-    private readonly Color outputTextColor = Color.FromArgb(37, 47, 63);
+    private readonly Color borderColor = Color.FromArgb(204, 204, 204);
+    private readonly Color textColor = Color.FromArgb(26, 26, 26);
+    private readonly Color mutedColor = Color.FromArgb(77, 77, 77);
+    private readonly Color primaryColor = Color.FromArgb(26, 26, 26);
+    private readonly Color primaryDarkColor = Color.FromArgb(0, 0, 0);
+    private readonly Color softColor = Color.FromArgb(245, 245, 245);
+    private readonly Color outputBackColor = Color.FromArgb(26, 26, 26);
+    private readonly Color outputTextColor = Color.FromArgb(255, 255, 255);
 
     private ListView profileList = null!;
     private TextBox providerNameBox = null!;
@@ -89,14 +89,22 @@ internal sealed class LauncherForm : Form
     private Font UiFont(float size = 9.0f, FontStyle style = FontStyle.Regular)
     {
         var families = FontFamily.Families.Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var fontName = families.Contains("Microsoft YaHei UI") ? "Microsoft YaHei UI" : "Segoe UI";
+        var fontName = families.Contains("Space Grotesk")
+            ? "Space Grotesk"
+            : families.Contains("Microsoft YaHei UI")
+                ? "Microsoft YaHei UI"
+                : "Segoe UI";
         return new Font(fontName, size, style);
     }
 
     private Font MonoFont(float size = 9.0f)
     {
         var families = FontFamily.Families.Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var fontName = families.Contains("Cascadia Mono") ? "Cascadia Mono" : "Consolas";
+        var fontName = families.Contains("JetBrains Mono")
+            ? "JetBrains Mono"
+            : families.Contains("Cascadia Mono")
+                ? "Cascadia Mono"
+                : "Consolas";
         return new Font(fontName, size, FontStyle.Regular);
     }
 
@@ -104,68 +112,101 @@ internal sealed class LauncherForm : Form
     {
         Text = "CodexCLI API 多开启动器";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(1120, 860);
-        MinimumSize = new Size(1040, 760);
+        ClientSize = new Size(1120, 820);
+        MinimumSize = new Size(1140, 820);
         BackColor = windowColor;
         Font = UiFont();
 
-        var headerTitle = NewLabel("CodexCLI API 多开启动器", 24, 18, 520, 34, 17, FontStyle.Bold);
-        Controls.Add(headerTitle);
+        var topBar = new Panel
+        {
+            Location = new Point(0, 0),
+            Size = new Size(ClientSize.Width, 72),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            BackColor = surfaceColor
+        };
+        Controls.Add(topBar);
 
-        var headerText = NewLabel("选择供应商和项目文件夹，然后用独立 CODEX_HOME 启动 Codex CLI。", 24, 56, 760, 24, 9, FontStyle.Regular, mutedColor);
-        Controls.Add(headerText);
+        topBar.Controls.Add(NewLabel(">_", 24, 22, 36, 26, 11, FontStyle.Bold, primaryColor));
+        topBar.Controls.Add(NewLabel("CodexCLI API 多开启动器", 68, 18, 330, 32, 14, FontStyle.Bold, primaryColor));
+        topBar.Controls.Add(NewLabel("仪表盘", 478, 24, 58, 24, 9, FontStyle.Bold, primaryColor));
+        topBar.Controls.Add(NewLabel("配置", 552, 24, 44, 24, 9, FontStyle.Regular, mutedColor));
+        topBar.Controls.Add(NewLabel("日志", 612, 24, 44, 24, 9, FontStyle.Regular, mutedColor));
+        topBar.Controls.Add(NewLabel("设置", 672, 24, 44, 24, 9, FontStyle.Regular, mutedColor));
+        var quickStartButton = NewButton("快速开始", 994, 20, 98, 32, primary: true);
+        quickStartButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        quickStartButton.Click += (_, _) => workspaceBox.Focus();
+        topBar.Controls.Add(quickStartButton);
 
-        var leftPanel = NewPanel(24, 96, 300, 730);
+        var topBorder = NewSeparator(0, 71, ClientSize.Width);
+        topBorder.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        Controls.Add(topBorder);
+
+        var leftPanel = NewPanel(0, 72, 280, 724);
+        leftPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom;
         Controls.Add(leftPanel);
 
-        var rightPanel = NewPanel(348, 96, 744, 730);
+        var sideBorder = NewSeparator(280, 72, 1);
+        sideBorder.Size = new Size(1, 724);
+        sideBorder.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom;
+        Controls.Add(sideBorder);
+
+        var rightPanel = NewPanel(312, 96, 780, 700);
+        rightPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
         Controls.Add(rightPanel);
 
-        leftPanel.Controls.Add(NewLabel("供应商配置", 16, 16, 240, 26, 11, FontStyle.Bold));
+        leftPanel.Controls.Add(NewLabel("API 配置文件", 24, 24, 188, 28, 12, FontStyle.Bold));
 
-        var refreshButton = NewButton("刷新", 16, 52, 86, 32);
+        var refreshButton = NewButton("刷新", 214, 22, 44, 30);
         refreshButton.Click += async (_, _) => await RefreshProfilesAsync();
         leftPanel.Controls.Add(refreshButton);
 
-        addProfileButton = NewButton("新增供应商", 116, 52, 136, 32, primary: true);
+        addProfileButton = NewButton("新增配置", 24, 652, 232, 34);
+        addProfileButton.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
         addProfileButton.Click += async (_, _) => await AddProfileAsync();
         leftPanel.Controls.Add(addProfileButton);
 
         profileList = new ListView
         {
-            Location = new Point(16, 100),
-            Size = new Size(268, 448),
+            Location = new Point(16, 76),
+            Size = new Size(248, 438),
             Font = UiFont(9.0f),
-            BorderStyle = BorderStyle.FixedSingle,
+            BorderStyle = BorderStyle.None,
             BackColor = softColor,
             View = View.Details,
             FullRowSelect = true,
             GridLines = false,
-            HeaderStyle = ColumnHeaderStyle.Nonclickable,
+            HeaderStyle = ColumnHeaderStyle.None,
             HideSelection = false,
-            MultiSelect = false
+            MultiSelect = false,
+            OwnerDraw = true
         };
+        profileList.SmallImageList = new ImageList { ImageSize = new Size(1, 38) };
         profileList.SelectedIndexChanged += (_, _) => UpdateSelectedProfile();
         profileList.Resize += (_, _) => ResizeProfileColumns();
+        profileList.DrawColumnHeader += (_, e) => e.DrawDefault = true;
+        profileList.DrawSubItem += DrawProfileSubItem;
         profileList.Columns.Add("名称");
         profileList.Columns.Add("模型");
         profileList.Columns.Add("供应商");
         ResizeProfileColumns();
         leftPanel.Controls.Add(profileList);
 
-        leftPanel.Controls.Add(NewLabel("每个配置独立保存 API 凭据、CODEX_HOME、会话和日志。", 16, 568, 268, 48, 9, FontStyle.Regular, mutedColor));
+        var profileHint = NewLabel("每个配置都保持独立的凭据、CODEX_HOME、会话和日志。", 24, 534, 232, 52, 9, FontStyle.Regular, mutedColor);
+        profileHint.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
+        leftPanel.Controls.Add(profileHint);
 
-        var openLaunchersButton = NewButton("打开快捷启动脚本目录", 16, 652, 268, 34);
+        var openLaunchersButton = NewButton("打开快捷启动脚本目录", 24, 600, 232, 34);
+        openLaunchersButton.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
         openLaunchersButton.Click += (_, _) => OpenFolder(bridge.GetLaunchersDir());
         leftPanel.Controls.Add(openLaunchersButton);
 
-        rightPanel.Controls.Add(NewLabel("当前供应商", 16, 16, 170, 28, 12, FontStyle.Bold));
+        rightPanel.Controls.Add(NewLabel("当前 API 配置", 16, 16, 170, 28, 12, FontStyle.Bold));
 
-        saveProfileButton = NewButton("保存修改", 504, 14, 96, 32, primary: true);
+        saveProfileButton = NewButton("保存修改", 540, 14, 96, 32, primary: true);
         saveProfileButton.Click += async (_, _) => await SaveProfileChangesAsync();
         rightPanel.Controls.Add(saveProfileButton);
 
-        homeButton = NewButton("打开目录", 612, 14, 96, 32);
+        homeButton = NewButton("打开目录", 648, 14, 96, 32);
         homeButton.Click += (_, _) =>
         {
             var profile = SelectedProfile();
@@ -185,10 +226,10 @@ internal sealed class LauncherForm : Form
         providerApiKeyBox.PlaceholderText = "留空则保留现有 API Key";
         providerCodexHomeBox = AddCodexHomeField(rightPanel, "配置目录", 16, 228);
 
-        rightPanel.Controls.Add(NewSeparator(16, 274, 692));
+        rightPanel.Controls.Add(NewSeparator(16, 274, 728));
         rightPanel.Controls.Add(NewLabel("项目文件夹", 16, 294, 180, 26, 11, FontStyle.Bold));
 
-        savedProjectLabel = NewLabel("已保存默认项目：无", 16, 320, 692, 24, 9, FontStyle.Regular, mutedColor);
+        savedProjectLabel = NewLabel("已保存默认项目：无", 16, 320, 728, 24, 9, FontStyle.Regular, mutedColor);
         rightPanel.Controls.Add(savedProjectLabel);
 
         workspaceBox = new TextBox
@@ -222,7 +263,7 @@ internal sealed class LauncherForm : Form
         clearProjectButton.Click += async (_, _) => await ClearWorkspaceAsync();
         rightPanel.Controls.Add(clearProjectButton);
 
-        rightPanel.Controls.Add(NewSeparator(16, 434, 692));
+        rightPanel.Controls.Add(NewSeparator(16, 434, 728));
 
         startButton = NewButton("启动 Codex", 16, 458, 156, 40, primary: true);
         startButton.Font = UiFont(10.5f, FontStyle.Bold);
@@ -255,7 +296,7 @@ internal sealed class LauncherForm : Form
         statusText = new RichTextBox
         {
             Location = new Point(16, 556),
-            Size = new Size(692, 152),
+            Size = new Size(728, 152),
             ReadOnly = true,
             ScrollBars = RichTextBoxScrollBars.Vertical,
             Font = MonoFont(9.5f),
@@ -440,12 +481,52 @@ internal sealed class LauncherForm : Form
             Font = UiFont(9, primary ? FontStyle.Bold : FontStyle.Regular),
             FlatStyle = FlatStyle.Flat,
             BackColor = primary ? primaryColor : surfaceColor,
-            ForeColor = primary ? primaryDarkColor : textColor
+            ForeColor = primary ? Color.White : textColor
         };
-        button.FlatAppearance.BorderColor = primary ? Color.FromArgb(157, 191, 180) : borderColor;
-        button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(205, 231, 225) : Color.FromArgb(237, 241, 246);
-        button.FlatAppearance.MouseDownBackColor = primary ? Color.FromArgb(190, 221, 214) : Color.FromArgb(225, 232, 240);
+        button.FlatAppearance.BorderColor = primary ? primaryDarkColor : borderColor;
+        button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(51, 51, 51) : softColor;
+        button.FlatAppearance.MouseDownBackColor = primary ? Color.FromArgb(0, 0, 0) : Color.FromArgb(229, 229, 229);
         return button;
+    }
+
+    private void DrawProfileSubItem(object? sender, DrawListViewSubItemEventArgs e)
+    {
+        if (e.Item is null)
+        {
+            return;
+        }
+
+        var item = e.Item;
+        var selected = item.Selected;
+        var background = selected
+            ? primaryColor
+            : item.Index % 2 == 0
+                ? surfaceColor
+                : softColor;
+
+        using var backgroundBrush = new SolidBrush(background);
+        e.Graphics.FillRectangle(backgroundBrush, e.Bounds);
+
+        var color = selected
+            ? Color.White
+            : e.ColumnIndex == 0
+                ? textColor
+                : mutedColor;
+        using var font = UiFont(e.ColumnIndex == 0 ? 9.0f : 8.5f, e.ColumnIndex == 0 ? FontStyle.Bold : FontStyle.Regular);
+        var textBounds = new Rectangle(e.Bounds.X + 8, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 12), e.Bounds.Height);
+        TextRenderer.DrawText(
+            e.Graphics,
+            e.SubItem?.Text ?? "",
+            font,
+            textBounds,
+            color,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+
+        if (!selected && e.ColumnIndex == profileList.Columns.Count - 1)
+        {
+            using var linePen = new Pen(Color.FromArgb(238, 238, 238));
+            e.Graphics.DrawLine(linePen, item.Bounds.Left + 8, item.Bounds.Bottom - 1, item.Bounds.Right - 8, item.Bounds.Bottom - 1);
+        }
     }
 
     private void ResizeProfileColumns()
@@ -456,16 +537,16 @@ internal sealed class LauncherForm : Form
         }
 
         var width = Math.Max(200, profileList.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 12);
-        profileList.Columns[0].Width = (int)(width * 0.36);
+        profileList.Columns[0].Width = (int)(width * 0.42);
         profileList.Columns[1].Width = (int)(width * 0.30);
         profileList.Columns[2].Width = width - profileList.Columns[0].Width - profileList.Columns[1].Width;
     }
 
-    private static Label NewSeparator(int x, int y, int width)
+    private Label NewSeparator(int x, int y, int width)
     {
         return new Label
         {
-            BackColor = Color.FromArgb(221, 227, 224),
+            BackColor = borderColor,
             Location = new Point(x, y),
             Size = new Size(width, 1)
         };
@@ -955,7 +1036,7 @@ internal sealed class AddProfileForm : Form
             }
         };
 
-        validationLabel = NewLabel("", 28, 574, 540, 26, 9, FontStyle.Regular, Color.FromArgb(126, 83, 24));
+        validationLabel = NewLabel("", 28, 574, 540, 26, 9, FontStyle.Regular, Color.FromArgb(51, 51, 51));
         Controls.Add(validationLabel);
 
         var cancelButton = NewButton("取消", 560, 570, 96, 36);
@@ -975,7 +1056,9 @@ internal sealed class AddProfileForm : Form
             Location = new Point(166, y),
             Size = new Size(520, 28),
             Font = uiFont(9.5f, FontStyle.Regular),
-            PlaceholderText = placeholder
+            PlaceholderText = placeholder,
+            BackColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle
         };
         parent.Controls.Add(box);
         return box;
@@ -989,7 +1072,9 @@ internal sealed class AddProfileForm : Form
             Location = new Point(166, y),
             Size = new Size(398, 28),
             Font = uiFont(9.5f, FontStyle.Regular),
-            PlaceholderText = "手动指定，例如：welfare-0xpsyche"
+            PlaceholderText = "手动指定，例如：welfare-0xpsyche",
+            BackColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle
         };
         parent.Controls.Add(box);
 
@@ -1007,7 +1092,9 @@ internal sealed class AddProfileForm : Form
             Location = new Point(166, y),
             Size = new Size(398, 28),
             Font = uiFont(9.5f, FontStyle.Regular),
-            PlaceholderText = placeholder
+            PlaceholderText = placeholder,
+            BackColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle
         };
         parent.Controls.Add(box);
 
@@ -1077,7 +1164,8 @@ internal sealed class AddProfileForm : Form
             Size = new Size(width, height),
             AutoEllipsis = true,
             Font = uiFont(size, style),
-            ForeColor = color ?? textColor
+            ForeColor = color ?? textColor,
+            BackColor = Color.Transparent
         };
     }
 
@@ -1091,10 +1179,11 @@ internal sealed class AddProfileForm : Form
             Font = uiFont(9, primary ? FontStyle.Bold : FontStyle.Regular),
             FlatStyle = FlatStyle.Flat,
             BackColor = primary ? primaryColor : Color.FromArgb(250, 251, 250),
-            ForeColor = primary ? primaryDarkColor : textColor
+            ForeColor = primary ? Color.White : textColor
         };
-        button.FlatAppearance.BorderColor = primary ? Color.FromArgb(157, 191, 180) : borderColor;
-        button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(199, 225, 216) : Color.FromArgb(238, 242, 240);
+        button.FlatAppearance.BorderColor = primary ? primaryDarkColor : borderColor;
+        button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(51, 51, 51) : Color.FromArgb(245, 245, 245);
+        button.FlatAppearance.MouseDownBackColor = primary ? Color.Black : Color.FromArgb(229, 229, 229);
         return button;
     }
 
