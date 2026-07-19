@@ -177,11 +177,6 @@ internal sealed class LauncherForm : Form
         topBar.Controls.Add(configNavButton);
         topBar.Controls.Add(logsNavButton);
         topBar.Controls.Add(settingsNavButton);
-        var quickStartButton = NewButton("快速开始", 744, 20, 98, 32, primary: true);
-        quickStartButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        quickStartButton.Click += (_, _) => workspaceBox.Focus();
-        topBar.Controls.Add(quickStartButton);
-
         var topBorder = NewSeparator(0, 71, ClientSize.Width);
         topBorder.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         Controls.Add(topBorder);
@@ -195,7 +190,7 @@ internal sealed class LauncherForm : Form
         sideBorder.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom;
         Controls.Add(sideBorder);
 
-        var rightPanel = NewPanel(304, 96, 640, 780);
+        var rightPanel = NewPanel(304, 96, 804, 780);
         dashboardPage = rightPanel;
         dashboardPage.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
         Controls.Add(dashboardPage);
@@ -247,11 +242,11 @@ internal sealed class LauncherForm : Form
 
         rightPanel.Controls.Add(NewLabel("当前 API 配置", 16, 16, 170, 28, 12, FontStyle.Bold));
 
-        saveProfileButton = NewButton("保存修改", 300, 14, 96, 32, primary: true);
+        saveProfileButton = NewButton("保存修改", 580, 14, 96, 32, primary: true);
         saveProfileButton.Click += async (_, _) => await SaveProfileChangesAsync();
         rightPanel.Controls.Add(saveProfileButton);
 
-        homeButton = NewButton("打开目录", 410, 14, 96, 32);
+        homeButton = NewButton("打开目录", 690, 14, 96, 32);
         homeButton.Click += (_, _) =>
         {
             var profile = SelectedProfile();
@@ -262,31 +257,31 @@ internal sealed class LauncherForm : Form
         };
         rightPanel.Controls.Add(homeButton);
 
-        providerNameBox = AddEditableField(rightPanel, "显示名称", 16, 58, 360);
-        providerIdBox = AddEditableField(rightPanel, "供应商 ID", 16, 92, 360);
+        providerNameBox = AddEditableField(rightPanel, "显示名称", 16, 58, 520);
+        providerIdBox = AddEditableField(rightPanel, "供应商 ID", 16, 92, 520);
         providerModelBox = AddModelField(rightPanel, "模型", 16, 126);
-        providerBaseUrlBox = AddEditableField(rightPanel, "中转地址", 16, 160, 360);
-        providerApiKeyBox = AddEditableField(rightPanel, "API Key", 16, 194, 360);
+        providerBaseUrlBox = AddEditableField(rightPanel, "中转地址", 16, 160, 520);
+        providerApiKeyBox = AddEditableField(rightPanel, "API Key", 16, 194, 520);
         providerApiKeyBox.UseSystemPasswordChar = true;
         providerApiKeyBox.PlaceholderText = "留空则保留现有 API Key";
         providerCodexHomeBox = AddCodexHomeField(rightPanel, "配置目录", 16, 228);
 
-        rightPanel.Controls.Add(NewSeparator(16, 274, 604));
+        rightPanel.Controls.Add(NewSeparator(16, 274, 772));
         rightPanel.Controls.Add(NewLabel("项目文件夹", 16, 294, 180, 26, 11, FontStyle.Bold));
 
-        savedProjectLabel = NewLabel("已保存默认项目：无", 16, 320, 604, 24, 9, FontStyle.Regular, mutedColor);
+        savedProjectLabel = NewLabel("已保存默认项目：无", 16, 320, 772, 24, 9, FontStyle.Regular, mutedColor);
         rightPanel.Controls.Add(savedProjectLabel);
 
         workspaceBox = new TextBox
         {
             Location = new Point(16, 348),
-            Size = new Size(330, 28),
+            Size = new Size(520, 28),
             Font = UiFont(9.5f)
         };
         workspaceBox.TextChanged += (_, _) => UpdateButtons();
         rightPanel.Controls.Add(workspaceBox);
 
-        var browseButton = NewButton("选择文件夹", 356, 344, 112, 32, primary: true);
+        var browseButton = NewButton("选择文件夹", 552, 344, 112, 32, primary: true);
         browseButton.Click += (_, _) => BrowseWorkspace();
         rightPanel.Controls.Add(browseButton);
 
@@ -300,15 +295,15 @@ internal sealed class LauncherForm : Form
         };
         rightPanel.Controls.Add(rememberCheck);
 
-        saveProjectButton = NewButton("保存默认", 260, 384, 102, 32);
+        saveProjectButton = NewButton("保存默认", 546, 384, 102, 32);
         saveProjectButton.Click += async (_, _) => await SaveWorkspaceAsync();
         rightPanel.Controls.Add(saveProjectButton);
 
-        clearProjectButton = NewButton("清除默认", 374, 384, 108, 32);
+        clearProjectButton = NewButton("清除默认", 660, 384, 108, 32);
         clearProjectButton.Click += async (_, _) => await ClearWorkspaceAsync();
         rightPanel.Controls.Add(clearProjectButton);
 
-        rightPanel.Controls.Add(NewSeparator(16, 434, 604));
+        rightPanel.Controls.Add(NewSeparator(16, 434, 772));
 
         startButton = NewButton("启动 Codex", 16, 458, 156, 40, primary: true);
         startButton.Font = UiFont(10.5f, FontStyle.Bold);
@@ -329,19 +324,19 @@ internal sealed class LauncherForm : Form
         outputMetaLabel = NewLabel("空闲", 108, 522, 160, 24, 9, FontStyle.Regular, mutedColor);
         rightPanel.Controls.Add(outputMetaLabel);
 
-        copyOutputButton = NewButton("复制输出", 300, 516, 112, 32);
+        copyOutputButton = NewButton("复制输出", 548, 516, 112, 32);
         copyOutputButton.Click += (_, _) => CopyOutput();
         copyOutputButton.Enabled = false;
         rightPanel.Controls.Add(copyOutputButton);
 
-        clearOutputButton = NewButton("清空", 430, 516, 100, 32);
+        clearOutputButton = NewButton("清空", 672, 516, 100, 32);
         clearOutputButton.Click += (_, _) => ClearOutput();
         rightPanel.Controls.Add(clearOutputButton);
 
         statusText = new RichTextBox
         {
             Location = new Point(16, 556),
-            Size = new Size(604, 152),
+            Size = new Size(772, 152),
             ReadOnly = true,
             ScrollBars = RichTextBoxScrollBars.Vertical,
             Font = MonoFont(9.5f),
@@ -391,7 +386,7 @@ internal sealed class LauncherForm : Form
         var box = new ComboBox
         {
             Location = new Point(x + 100, y),
-            Size = new Size(250, 28),
+            Size = new Size(410, 28),
             Font = UiFont(9.5f),
             DropDownStyle = ComboBoxStyle.DropDown,
             FlatStyle = FlatStyle.Flat,
@@ -400,7 +395,7 @@ internal sealed class LauncherForm : Form
         };
         parent.Controls.Add(box);
 
-        fetchModelsButton = NewButton("获取模型", x + 370, y - 2, 104, 32);
+        fetchModelsButton = NewButton("获取模型", x + 550, y - 2, 104, 32);
         fetchModelsButton.Click += async (_, _) => await FetchModelsAsync();
         parent.Controls.Add(fetchModelsButton);
         return box;
@@ -408,13 +403,13 @@ internal sealed class LauncherForm : Form
 
     private Panel BuildConfigPage()
     {
-        var page = NewPanel(304, 96, 640, 780);
+        var page = NewPanel(304, 96, 804, 780);
         page.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
         page.Visible = false;
         page.Controls.Add(NewLabel("配置", 16, 16, 180, 30, 14, FontStyle.Bold));
-        page.Controls.Add(NewLabel("这里集中处理本机配置文件、快捷启动脚本和当前供应商目录。", 16, 52, 590, 24, 9, FontStyle.Regular, mutedColor));
+        page.Controls.Add(NewLabel("这里集中处理本机配置文件、快捷启动脚本和当前供应商目录。", 16, 52, 760, 24, 9, FontStyle.Regular, mutedColor));
 
-        configSummaryLabel = NewLabel("", 16, 92, 604, 120, 9.5f, FontStyle.Regular, textColor);
+        configSummaryLabel = NewLabel("", 16, 92, 772, 120, 9.5f, FontStyle.Regular, textColor);
         page.Controls.Add(configSummaryLabel);
 
         var openRootButton = NewButton("打开配置根目录", 16, 236, 150, 34);
@@ -441,24 +436,24 @@ internal sealed class LauncherForm : Form
 
     private Panel BuildLogsPage()
     {
-        var page = NewPanel(304, 96, 640, 780);
+        var page = NewPanel(304, 96, 804, 780);
         page.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
         page.Visible = false;
         page.Controls.Add(NewLabel("日志", 16, 16, 180, 30, 14, FontStyle.Bold));
-        page.Controls.Add(NewLabel("显示最近一次启动、检查或配置操作的输出。", 16, 52, 590, 24, 9, FontStyle.Regular, mutedColor));
+        page.Controls.Add(NewLabel("显示最近一次启动、检查或配置操作的输出。", 16, 52, 760, 24, 9, FontStyle.Regular, mutedColor));
 
-        var copyButton = NewButton("复制日志", 300, 16, 96, 32);
+        var copyButton = NewButton("复制日志", 556, 16, 96, 32);
         copyButton.Click += (_, _) => CopyOutput();
         page.Controls.Add(copyButton);
 
-        var clearButton = NewButton("清空日志", 412, 16, 96, 32);
+        var clearButton = NewButton("清空日志", 666, 16, 96, 32);
         clearButton.Click += (_, _) => ClearOutput();
         page.Controls.Add(clearButton);
 
         logsText = new RichTextBox
         {
             Location = new Point(16, 92),
-            Size = new Size(604, 580),
+            Size = new Size(772, 580),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
             ReadOnly = true,
             ScrollBars = RichTextBoxScrollBars.Vertical,
@@ -475,13 +470,13 @@ internal sealed class LauncherForm : Form
 
     private Panel BuildSettingsPage()
     {
-        var page = NewPanel(304, 96, 640, 780);
+        var page = NewPanel(304, 96, 804, 780);
         page.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
         page.Visible = false;
         page.Controls.Add(NewLabel("设置", 16, 16, 180, 30, 14, FontStyle.Bold));
-        page.Controls.Add(NewLabel("查看当前应用路径、运行时目录和公开仓库入口。", 16, 52, 590, 24, 9, FontStyle.Regular, mutedColor));
+        page.Controls.Add(NewLabel("查看当前应用路径、运行时目录和公开仓库入口。", 16, 52, 760, 24, 9, FontStyle.Regular, mutedColor));
 
-        settingsSummaryLabel = NewLabel("", 16, 92, 604, 150, 9.5f, FontStyle.Regular, textColor);
+        settingsSummaryLabel = NewLabel("", 16, 92, 772, 150, 9.5f, FontStyle.Regular, textColor);
         page.Controls.Add(settingsSummaryLabel);
 
         var openAppDirButton = NewButton("打开应用目录", 16, 266, 128, 34);
@@ -718,7 +713,7 @@ internal sealed class LauncherForm : Form
         var box = new TextBox
         {
             Location = new Point(x + 100, y),
-            Size = new Size(250, 28),
+            Size = new Size(410, 28),
             Font = UiFont(9.5f),
             ReadOnly = false,
             BackColor = fieldColor,
@@ -726,7 +721,7 @@ internal sealed class LauncherForm : Form
         };
         parent.Controls.Add(box);
 
-        migrateHomeButton = NewButton("迁移目录", x + 370, y - 2, 104, 32);
+        migrateHomeButton = NewButton("迁移目录", x + 550, y - 2, 104, 32);
         migrateHomeButton.Click += async (_, _) => await MigrateCodexHomeAsync();
         parent.Controls.Add(migrateHomeButton);
         return box;
@@ -1964,6 +1959,16 @@ internal sealed class LauncherButton : Button
         var muted = Color.FromArgb(102, 102, 102);
         var disabledBack = Color.FromArgb(229, 229, 229);
         var disabledText = Color.FromArgb(77, 77, 77);
+
+        if (!string.IsNullOrWhiteSpace(IconKind))
+        {
+            var iconBack = pressing
+                ? Color.FromArgb(238, 238, 238)
+                : hovering
+                    ? soft
+                    : white;
+            return (iconBack, black, Color.FromArgb(153, 153, 153));
+        }
 
         if (!Enabled)
         {
