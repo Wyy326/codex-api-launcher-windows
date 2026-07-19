@@ -212,7 +212,7 @@ function Get-ProfileDisplay {
 }
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "Codex API 多开启动器"
+$form.Text = "CodexCLI API 多开启动器"
 $form.StartPosition = "CenterScreen"
 $form.Size = New-Object System.Drawing.Size(980, 650)
 $form.MinimumSize = New-Object System.Drawing.Size(920, 600)
@@ -220,7 +220,7 @@ $form.BackColor = $script:Colors.Window
 $form.Font = New-UiFont
 $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Font
 
-$headerTitle = New-Label -Text "Codex API 多开启动器" -X 24 -Y 18 -Width 360 -Height 34 -Size 16 -Style ([System.Drawing.FontStyle]::Bold)
+$headerTitle = New-Label -Text "CodexCLI API 多开启动器" -X 24 -Y 18 -Width 420 -Height 34 -Size 16 -Style ([System.Drawing.FontStyle]::Bold)
 $form.Controls.Add($headerTitle)
 
 $headerText = New-Label -Text "选择一个 API 配置，再选择项目文件夹，然后打开独立的 Codex CLI 终端窗口。" -X 24 -Y 54 -Width 820 -Height 24 -Color $script:Colors.Muted
@@ -232,7 +232,7 @@ $form.Controls.Add($leftPanel)
 $rightPanel = New-Panel -X 334 -Y 94 -Width 622 -Height 500
 $form.Controls.Add($rightPanel)
 
-$profilesTitle = New-Label -Text "API 配置" -X 16 -Y 14 -Width 160 -Height 26 -Size 11 -Style ([System.Drawing.FontStyle]::Bold)
+$profilesTitle = New-Label -Text "API 配置列表" -X 16 -Y 14 -Width 160 -Height 26 -Size 11 -Style ([System.Drawing.FontStyle]::Bold)
 $leftPanel.Controls.Add($profilesTitle)
 
 $refreshButton = New-Button -Text "刷新" -X 186 -Y 12 -Width 84 -Height 30
@@ -244,6 +244,7 @@ $profileList.Size = New-Object System.Drawing.Size(254, 296)
 $profileList.Font = New-UiFont -Size 9.5
 $profileList.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
 $profileList.BackColor = $script:Colors.Info
+$profileList.HorizontalScrollbar = $true
 $leftPanel.Controls.Add($profileList)
 
 $profileHint = New-Label -Text "每个配置都有独立的 API 凭据、CODEX_HOME、会话和日志。项目文件夹在启动时选择。" -X 16 -Y 362 -Width 254 -Height 54 -Color $script:Colors.Muted
@@ -252,7 +253,7 @@ $leftPanel.Controls.Add($profileHint)
 $openLaunchersButton = New-Button -Text "打开快捷启动脚本目录" -X 16 -Y 438 -Width 254 -Height 34
 $leftPanel.Controls.Add($openLaunchersButton)
 
-$selectedTitle = New-Label -Text "当前配置" -X 20 -Y 16 -Width 200 -Height 28 -Size 12 -Style ([System.Drawing.FontStyle]::Bold)
+$selectedTitle = New-Label -Text "当前 API 配置" -X 20 -Y 16 -Width 200 -Height 28 -Size 12 -Style ([System.Drawing.FontStyle]::Bold)
 $rightPanel.Controls.Add($selectedTitle)
 
 $providerNameLabel = New-Label -Text "尚未选择配置" -X 20 -Y 48 -Width 372 -Height 24 -Size 10 -Style ([System.Drawing.FontStyle]::Bold)
@@ -359,8 +360,8 @@ function Update-SelectedProfile {
         return
     }
 
-    $providerNameLabel.Text = "$($profile.Name) [$($profile.Id)]"
-    $providerMetaLabel.Text = "模型: $($profile.Model)`r`nBase URL: $($profile.BaseUrl)`r`n环境变量: $($profile.EnvKeyName)"
+    $providerNameLabel.Text = "$($profile.Name)"
+    $providerMetaLabel.Text = "配置 ID: $($profile.Id)`r`n模型: $($profile.Model)`r`nBase URL: $($profile.BaseUrl)"
 
     if ($profile.Workspace) {
         $savedProjectLabel.Text = "已保存默认项目: $($profile.Workspace)"
@@ -380,7 +381,7 @@ function Refresh-Profiles {
     $profileMap.Clear()
     $profiles = @(Get-CodexApiProfiles | Sort-Object Name, Id)
     foreach ($profile in $profiles) {
-        $display = "$($profile.Name) [$($profile.Id)]"
+        $display = "$($profile.Name) | $($profile.Model) | $($profile.Id)"
         $profileMap[$display] = $profile
         [void]$profileList.Items.Add($display)
     }
@@ -447,7 +448,7 @@ $saveProjectButton.Add_Click({
         Set-Status "已为 $($profile.Id) 保存默认项目文件夹。"
         Refresh-Profiles
         foreach ($item in $profileList.Items) {
-            if ([string]$item -like "*[$($profile.Id)]") {
+            if ([string]$item -like "* | $($profile.Id)") {
                 $profileList.SelectedItem = $item
                 break
             }
@@ -469,7 +470,7 @@ $clearProjectButton.Add_Click({
         Set-Status "已清除 $($profile.Id) 的默认项目文件夹。"
         Refresh-Profiles
         foreach ($item in $profileList.Items) {
-            if ([string]$item -like "*[$($profile.Id)]") {
+            if ([string]$item -like "* | $($profile.Id)") {
                 $profileList.SelectedItem = $item
                 break
             }

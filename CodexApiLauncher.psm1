@@ -1,6 +1,6 @@
 Set-StrictMode -Version 2.0
 
-$script:LauncherVersion = "0.2.0"
+$script:LauncherVersion = "0.2.1"
 
 function Get-CodexApiLauncherRoot {
     [CmdletBinding()]
@@ -421,6 +421,38 @@ function Set-CodexApiProfileWorkspace {
     }
 }
 
+function Set-CodexApiProfileName {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Id,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+
+    if (-not $Name.Trim()) {
+        throw "配置名称不能为空。"
+    }
+
+    $state = Read-State
+    $profile = Get-ProfileById -State $state -Id $Id
+    if (-not $profile) {
+        throw "没有找到 Profile '$Id'。"
+    }
+
+    $profile.name = $Name.Trim()
+    $profile.providerName = $Name.Trim()
+    $profile.updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+    Write-State -State $state
+    Write-ProfileConfig -Profile $profile
+    Write-ProfileLauncher -Profile $profile
+
+    [pscustomobject]@{
+        Id = $profile.id
+        Name = $profile.name
+        ConfigPath = (Join-Path $profile.paths.codexHome "config.toml")
+        LauncherPath = $profile.paths.launcherPath
+    }
+}
+
 function Get-CodexApiProfile {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$Id)
@@ -771,6 +803,7 @@ Export-ModuleMember -Function @(
     "New-CodexApiProfile",
     "Set-CodexApiProfileApiKey",
     "Set-CodexApiProfileWorkspace",
+    "Set-CodexApiProfileName",
     "Get-CodexApiProfile",
     "Get-CodexApiProfiles",
     "Test-CodexApiProfile",

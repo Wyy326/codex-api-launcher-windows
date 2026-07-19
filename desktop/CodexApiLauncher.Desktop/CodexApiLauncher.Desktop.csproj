@@ -7,16 +7,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>CodexApiLauncher</AssemblyName>
     <RootNamespace>CodexApiLauncher.Desktop</RootNamespace>
-    <Version>0.2.0</Version>
-    <FileVersion>0.2.0.0</FileVersion>
-    <AssemblyVersion>0.2.0.0</AssemblyVersion>
-    <Product>Codex API 多开启动器</Product>
+    <Version>0.2.1</Version>
+    <FileVersion>0.2.1.0</FileVersion>
+    <AssemblyVersion>0.2.1.0</AssemblyVersion>
+    <Product>CodexCLI API 多开启动器</Product>
     <Company>Wyy326</Company>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>none</DebugType>
+    <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
 
   <ItemGroup>

@@ -80,14 +80,14 @@ internal sealed class LauncherForm : Form
 
     private void BuildUi()
     {
-        Text = "Codex API 多开启动器";
+        Text = "CodexCLI API 多开启动器";
         StartPosition = FormStartPosition.CenterScreen;
         Size = new Size(1000, 680);
         MinimumSize = new Size(940, 620);
         BackColor = windowColor;
         Font = UiFont();
 
-        var headerTitle = NewLabel("Codex API 多开启动器", 24, 18, 420, 34, 16, FontStyle.Bold);
+        var headerTitle = NewLabel("CodexCLI API 多开启动器", 24, 18, 420, 34, 16, FontStyle.Bold);
         Controls.Add(headerTitle);
 
         var headerText = NewLabel("选择 API 配置和项目文件夹，然后用独立 CODEX_HOME 启动 Codex CLI。", 24, 54, 840, 24, 9, FontStyle.Regular, mutedColor);
@@ -99,7 +99,7 @@ internal sealed class LauncherForm : Form
         var rightPanel = NewPanel(342, 94, 622, 520);
         Controls.Add(rightPanel);
 
-        leftPanel.Controls.Add(NewLabel("API 配置", 16, 14, 160, 26, 11, FontStyle.Bold));
+        leftPanel.Controls.Add(NewLabel("API 配置列表", 16, 14, 160, 26, 11, FontStyle.Bold));
 
         var refreshButton = NewButton("刷新", 194, 12, 84, 30);
         refreshButton.Click += async (_, _) => await RefreshProfilesAsync();
@@ -111,7 +111,8 @@ internal sealed class LauncherForm : Form
             Size = new Size(262, 306),
             Font = UiFont(9.5f),
             BorderStyle = BorderStyle.FixedSingle,
-            BackColor = softColor
+            BackColor = softColor,
+            HorizontalScrollbar = true
         };
         profileList.SelectedIndexChanged += (_, _) => UpdateSelectedProfile();
         leftPanel.Controls.Add(profileList);
@@ -122,7 +123,7 @@ internal sealed class LauncherForm : Form
         openLaunchersButton.Click += (_, _) => OpenFolder(bridge.GetLaunchersDir());
         leftPanel.Controls.Add(openLaunchersButton);
 
-        rightPanel.Controls.Add(NewLabel("当前配置", 20, 16, 200, 28, 12, FontStyle.Bold));
+        rightPanel.Controls.Add(NewLabel("当前 API 配置", 20, 16, 200, 28, 12, FontStyle.Bold));
 
         providerNameLabel = NewLabel("尚未选择配置", 20, 48, 372, 24, 10, FontStyle.Bold);
         rightPanel.Controls.Add(providerNameLabel);
@@ -272,7 +273,7 @@ internal sealed class LauncherForm : Form
 
                 foreach (var profile in profiles.OrderBy(p => p.Name).ThenBy(p => p.Id))
                 {
-                    var display = $"{profile.Name} [{profile.Id}]";
+                    var display = FormatProfileListItem(profile);
                     profileMap[display] = profile;
                     profileList.Items.Add(display);
                 }
@@ -285,7 +286,7 @@ internal sealed class LauncherForm : Form
                         for (var i = 0; i < profileList.Items.Count; i++)
                         {
                             var item = profileList.Items[i]?.ToString() ?? "";
-                            if (item.EndsWith($"[{keepId}]", StringComparison.OrdinalIgnoreCase))
+                            if (item.EndsWith($" | {keepId}", StringComparison.OrdinalIgnoreCase))
                             {
                                 selectedIndex = i;
                                 break;
@@ -318,8 +319,8 @@ internal sealed class LauncherForm : Form
             return;
         }
 
-        providerNameLabel.Text = $"{profile.Name} [{profile.Id}]";
-        providerMetaLabel.Text = $"模型: {profile.Model}\r\nBase URL: {profile.BaseUrl}\r\n环境变量: {profile.EnvKeyName}";
+        providerNameLabel.Text = profile.Name;
+        providerMetaLabel.Text = $"配置 ID: {profile.Id}\r\n模型: {profile.Model}\r\nBase URL: {profile.BaseUrl}";
 
         if (!string.IsNullOrWhiteSpace(profile.Workspace))
         {
@@ -342,6 +343,11 @@ internal sealed class LauncherForm : Form
     {
         var key = profileList.SelectedItem?.ToString();
         return key is not null && profileMap.TryGetValue(key, out var profile) ? profile : null;
+    }
+
+    private static string FormatProfileListItem(ProfileInfo profile)
+    {
+        return $"{profile.Name} | {profile.Model} | {profile.Id}";
     }
 
     private bool WorkspaceReady()

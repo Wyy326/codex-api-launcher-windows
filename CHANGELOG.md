@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- 将桌面端和备用 PowerShell UI 的可见产品名改为 `CodexCLI API 多开启动器`。
+- API 配置列表改为“配置名称 | 模型 | 配置 ID”格式，减少只看 id 时的混淆。
+- 当前配置详情增加“配置 ID”，并将示例 profile 显示名改为更容易理解的中文名称。
+- 新增 `Set-CodexApiProfileName`，用于重命名 profile 显示名称。
+
 ## 0.2.0
 
 - 新增 C# WinForms 桌面端 `CodexApiLauncher.exe`。

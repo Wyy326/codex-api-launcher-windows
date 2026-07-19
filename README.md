@@ -1,8 +1,8 @@
-# Codex API 多开启动器 for Windows
+# CodexCLI API 多开启动器 for Windows
 
 一个轻量 Windows 桌面工具，用来启动多个彼此隔离的 Codex CLI 实例。它面向第三方 OpenAI-compatible API provider，不做 ChatGPT 登录账号隔离。
 
-每个 API 配置都会拥有独立的 `CODEX_HOME`、`config.toml`、API Key 环境变量、日志、sessions 和快捷启动脚本。API Key 不会写入 TOML、脚本或仓库文件。
+每个 API 配置都会拥有独立的 `CODEX_HOME`、`config.toml`、API Key 环境变量、日志、sessions 和快捷启动脚本。API Key 不会写入 TOML、脚本或仓库文件。界面里的配置列表使用“配置名称 | 模型 | 配置 ID”格式，方便区分多个中转。
 
 ## 文件
 
@@ -57,7 +57,7 @@ UI 支持：
 
 ```text
 dist\CodexApiLauncherDesktop-win-x64\CodexApiLauncher.exe
-dist\CodexApiLauncherDesktop-0.2.0-win-x64.zip
+dist\CodexApiLauncherDesktop-0.2.1-win-x64.zip
 ```
 
 发布包是 self-contained win-x64 构建，不需要目标机器额外安装 .NET 运行时。运行时仍会调用同目录的 PowerShell 模块，以复用已有的 profile、API Key 加密存储和 CODEX_HOME 隔离逻辑。
@@ -158,6 +158,12 @@ Start-CodexApiProfile -Id "shuaiapi" -Workspace "D:\workplace\your-project" -InC
 ```powershell
 Set-CodexApiProfileWorkspace -Id "shuaiapi" -Workspace "D:\workplace\your-project"
 Set-CodexApiProfileWorkspace -Id "shuaiapi" -Clear
+```
+
+重命名配置显示名称：
+
+```powershell
+Set-CodexApiProfileName -Id "shuaiapi" -Name "ShuaiAPI 主力中转"
 ```
 
 ## 删除配置
