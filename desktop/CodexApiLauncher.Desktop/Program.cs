@@ -35,6 +35,22 @@ internal static class Program
             return 1;
         }
     }
+
+    internal static void ApplyAppIcon(Form form)
+    {
+        try
+        {
+            var icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            if (icon is not null)
+            {
+                form.Icon = icon;
+            }
+        }
+        catch
+        {
+            // The embedded executable icon is optional at runtime.
+        }
+    }
 }
 
 internal sealed class LauncherForm : Form
@@ -111,6 +127,7 @@ internal sealed class LauncherForm : Form
     private void BuildUi()
     {
         Text = "CodexCLI API 多开启动器";
+        Program.ApplyAppIcon(this);
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1120, 820);
         MinimumSize = new Size(1140, 820);
@@ -946,6 +963,7 @@ internal sealed class AddProfileForm : Form
         this.primaryDarkColor = primaryDarkColor;
 
         Text = "新增供应商";
+        Program.ApplyAppIcon(this);
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(1000, 760);
         MinimumSize = new Size(980, 720);

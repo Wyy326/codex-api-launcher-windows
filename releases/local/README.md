@@ -14,5 +14,6 @@ The zip files are ignored by Git. Keep them here for local recovery and manual u
 | `codex-api-launcher-desktop-0.2.1-win-x64.zip` | Latest copied desktop zip from the original task workspace. |
 | `CodexApiLauncherDesktop-0.3.0-local-win-x64.zip` | Current local build from the consolidated source tree. |
 | `CodexApiLauncherDesktop-0.3.1-local-win-x64.zip` | Dashboard-style UI build with monochrome launcher styling. |
+| `CodexApiLauncherDesktop-0.3.2-local-win-x64.zip` | Build with embedded app logo and desktop shortcut icon support. |
 
 If a new package is built from the current source tree, place it here as a local artifact and update this index.
