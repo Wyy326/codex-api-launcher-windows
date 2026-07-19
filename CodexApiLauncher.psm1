@@ -1,6 +1,6 @@
 Set-StrictMode -Version 2.0
 
-$script:LauncherVersion = "0.2.1"
+$script:LauncherVersion = "0.3.0-local"
 
 function Get-CodexApiLauncherRoot {
     [CmdletBinding()]
@@ -107,13 +107,13 @@ function ConvertTo-SafeProfileId {
     $safe = $Id.Trim().ToLowerInvariant() -replace "[^a-z0-9_-]", "-"
     $safe = $safe.Trim("-_")
     if (-not $safe) {
-        throw "Profile id 至少需要包含一个字母或数字。"
+        throw "供应商 ID 至少需要包含一个字母或数字。"
     }
     if ($safe.Length -gt 40) {
         $safe = $safe.Substring(0, 40).Trim("-_")
     }
     if ($safe -notmatch "^[a-z0-9][a-z0-9_-]*$") {
-        throw "Profile id '$Id' 规范化后仍然无效。"
+        throw "供应商 ID '$Id' 规范化后仍然无效。"
     }
     return $safe
 }
@@ -159,6 +159,19 @@ function Get-ProfileHome {
 function Get-ProfileCodexHome {
     param([Parameter(Mandatory = $true)][string]$Id)
     Join-Path (Get-ProfileHome -Id $Id) "codex-home"
+}
+
+function Resolve-CodexHomePath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Id,
+        [string]$CodexHome
+    )
+
+    if ($CodexHome -and $CodexHome.Trim()) {
+        return [System.IO.Path]::GetFullPath($CodexHome.Trim())
+    }
+
+    return Get-ProfileCodexHome -Id $Id
 }
 
 function Get-ProfileById {
@@ -256,6 +269,62 @@ function Write-ProfileConfig {
     Write-Utf8File -Path (Join-Path $Profile.paths.codexHome "config.toml") -Content (Get-ConfigText -Profile $Profile)
 }
 
+function Get-NormalizedDirectoryPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    return [System.IO.Path]::GetFullPath($Path).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+}
+
+function Move-DirectoryToDestination {
+    param(
+        [string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    if (-not $Source -or -not (Test-Path -LiteralPath $Source -PathType Container)) {
+        Ensure-Directory $Destination
+        return
+    }
+
+    $sourceFull = Get-NormalizedDirectoryPath $Source
+    $destinationFull = Get-NormalizedDirectoryPath $Destination
+    if ([string]::Equals($sourceFull, $destinationFull, [StringComparison]::OrdinalIgnoreCase)) {
+        return
+    }
+
+    if ($destinationFull.StartsWith($sourceFull + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+        $destinationFull.StartsWith($sourceFull + [System.IO.Path]::AltDirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "目标目录不能位于当前目录内部: $destinationFull"
+    }
+
+    $destinationParent = Split-Path -Parent $destinationFull
+    if ($destinationParent) {
+        Ensure-Directory $destinationParent
+    }
+
+    if (-not (Test-Path -LiteralPath $destinationFull)) {
+        Move-Item -LiteralPath $sourceFull -Destination $destinationFull -Force
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $destinationFull -PathType Container)) {
+        throw "目标路径已存在但不是目录: $destinationFull"
+    }
+
+    foreach ($item in Get-ChildItem -LiteralPath $sourceFull -Force) {
+        $targetPath = Join-Path $destinationFull $item.Name
+        if (Test-Path -LiteralPath $targetPath) {
+            throw "目标目录已存在同名项目，不能安全迁移: $targetPath"
+        }
+        Move-Item -LiteralPath $item.FullName -Destination $destinationFull -Force
+    }
+
+    Remove-Item -LiteralPath $sourceFull -Force
+}
+
 function Get-ModuleRunnerPath {
     Join-Path $PSScriptRoot "Run-CodexApiProfile.ps1"
 }
@@ -288,6 +357,7 @@ function New-CodexApiProfile {
         [Parameter(Mandatory = $true)][string]$BaseUrl,
         [Parameter(Mandatory = $true)][string]$Model,
         [string]$Workspace = "",
+        [string]$CodexHome = "",
         [ValidateSet("low", "medium", "high", "xhigh", "max", "ultra")][string]$ReasoningEffort = "medium",
         [securestring]$ApiKey,
         [switch]$Force
@@ -302,7 +372,7 @@ function New-CodexApiProfile {
     }
 
     $now = (Get-Date).ToUniversalTime().ToString("o")
-    $codexHome = Get-ProfileCodexHome -Id $safeId
+    $codexHome = Resolve-CodexHomePath -Id $safeId -CodexHome $CodexHome
     $launcherPath = Join-Path (Get-LaunchersDir) "$safeId.ps1"
     $providerId = ConvertTo-ProviderId -Id $safeId
     $envKeyName = ConvertTo-EnvKeyName -Id $safeId
@@ -450,6 +520,216 @@ function Set-CodexApiProfileName {
         Name = $profile.name
         ConfigPath = (Join-Path $profile.paths.codexHome "config.toml")
         LauncherPath = $profile.paths.launcherPath
+    }
+}
+
+function Set-CodexApiProfileCodexHome {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Id,
+        [Parameter(Mandatory = $true)][string]$CodexHome
+    )
+
+    if (-not $CodexHome.Trim()) {
+        throw "配置存放目录不能为空。"
+    }
+
+    $state = Read-State
+    $profile = Get-ProfileById -State $state -Id $Id
+    if (-not $profile) {
+        throw "没有找到 Profile '$Id'。"
+    }
+
+    $oldCodexHome = [string]$profile.paths.codexHome
+    $newCodexHome = [System.IO.Path]::GetFullPath($CodexHome.Trim())
+    Move-DirectoryToDestination -Source $oldCodexHome -Destination $newCodexHome
+    $profile.paths.codexHome = $newCodexHome
+    $profile.updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+    Write-State -State $state
+    Write-ProfileConfig -Profile $profile
+    Write-ProfileLauncher -Profile $profile
+
+    [pscustomobject]@{
+        Id = $profile.id
+        CodexHome = $profile.paths.codexHome
+        ConfigPath = (Join-Path $profile.paths.codexHome "config.toml")
+        LauncherPath = $profile.paths.launcherPath
+    }
+}
+
+function Set-CodexApiProfile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Id,
+        [string]$NewId,
+        [string]$Name,
+        [string]$BaseUrl,
+        [string]$Model,
+        [AllowEmptyString()][string]$Workspace,
+        [string]$CodexHome,
+        [ValidateSet("low", "medium", "high", "xhigh", "max", "ultra")][string]$ReasoningEffort
+    )
+
+    $state = Read-State
+    $profile = Get-ProfileById -State $state -Id $Id
+    if (-not $profile) {
+        throw "没有找到 Profile '$Id'。"
+    }
+
+    $oldId = [string]$profile.id
+    $targetId = if ($PSBoundParameters.ContainsKey("NewId") -and $NewId.Trim()) {
+        ConvertTo-SafeProfileId $NewId
+    }
+    else {
+        $oldId
+    }
+
+    if (-not [string]::Equals($oldId, $targetId, [StringComparison]::OrdinalIgnoreCase)) {
+        $existing = Get-ProfileById -State $state -Id $targetId
+        if ($existing) {
+            throw "供应商 ID '$targetId' 已存在。"
+        }
+    }
+
+    if ($PSBoundParameters.ContainsKey("Name")) {
+        if (-not $Name.Trim()) {
+            throw "供应商名称不能为空。"
+        }
+        $profile.name = $Name.Trim()
+        $profile.providerName = $Name.Trim()
+    }
+
+    if ($PSBoundParameters.ContainsKey("BaseUrl")) {
+        if (-not $BaseUrl.Trim()) {
+            throw "中转地址不能为空。"
+        }
+        $profile.baseUrl = Test-BaseUrl $BaseUrl
+    }
+
+    if ($PSBoundParameters.ContainsKey("Model")) {
+        if (-not $Model.Trim()) {
+            throw "模型不能为空。"
+        }
+        $profile.model = $Model.Trim()
+    }
+
+    if ($PSBoundParameters.ContainsKey("ReasoningEffort")) {
+        $profile.reasoningEffort = $ReasoningEffort
+    }
+
+    if ($PSBoundParameters.ContainsKey("Workspace")) {
+        if ($Workspace -and $Workspace.Trim()) {
+            if (-not (Test-Path -LiteralPath $Workspace -PathType Container)) {
+                throw "项目文件夹不存在: $Workspace"
+            }
+            $profile.workspace = [System.IO.Path]::GetFullPath($Workspace)
+        }
+        else {
+            $profile.workspace = $null
+        }
+    }
+
+    $requestedCodexHome = $null
+    if ($PSBoundParameters.ContainsKey("CodexHome")) {
+        if (-not $CodexHome.Trim()) {
+            throw "配置存放目录不能为空。"
+        }
+        $requestedCodexHome = [System.IO.Path]::GetFullPath($CodexHome.Trim())
+    }
+
+    $oldProfileHome = [string]$profile.paths.profileHome
+    $oldCodexHome = [string]$profile.paths.codexHome
+    $oldLauncherPath = [string]$profile.paths.launcherPath
+    $idChanged = -not [string]::Equals($oldId, $targetId, [StringComparison]::OrdinalIgnoreCase)
+
+    $targetProfileHome = Get-ProfileHome -Id $targetId
+    $targetCodexHome = if ($requestedCodexHome) { $requestedCodexHome } else { $oldCodexHome }
+    if ($idChanged) {
+        $oldProfileHomeNormalized = Get-NormalizedDirectoryPath $oldProfileHome
+        $targetCodexHomeNormalized = Get-NormalizedDirectoryPath $targetCodexHome
+        if ([string]::Equals($targetCodexHomeNormalized, $oldProfileHomeNormalized, [StringComparison]::OrdinalIgnoreCase)) {
+            $targetCodexHome = $targetProfileHome
+        }
+        elseif ($targetCodexHomeNormalized.StartsWith($oldProfileHomeNormalized + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+            $targetCodexHomeNormalized.StartsWith($oldProfileHomeNormalized + [System.IO.Path]::AltDirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            $relativeCodexHome = [System.IO.Path]::GetRelativePath($oldProfileHomeNormalized, $targetCodexHomeNormalized)
+            $targetCodexHome = Join-Path $targetProfileHome $relativeCodexHome
+        }
+    }
+
+    if ($idChanged) {
+        $profile.id = $targetId
+        $profile.providerId = ConvertTo-ProviderId -Id $targetId
+        $profile.envKeyName = ConvertTo-EnvKeyName -Id $targetId
+        $profile.paths.profileHome = $targetProfileHome
+        $profile.paths.launcherPath = Join-Path (Get-LaunchersDir) "$targetId.ps1"
+
+        if ($profile.PSObject.Properties.Name -contains "desktop" -and $null -ne $profile.desktop) {
+            $profile.desktop.userDataDir = Join-Path (Get-ProfileHome -Id $targetId) "desktop-user-data"
+        }
+
+        $oldSecretPath = Get-ProfileSecretPath -Id $oldId
+        $newSecretPath = Get-ProfileSecretPath -Id $targetId
+        if (Test-Path -LiteralPath $oldSecretPath) {
+            if ((Test-Path -LiteralPath $newSecretPath) -and -not [string]::Equals($oldSecretPath, $newSecretPath, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "目标供应商 ID '$targetId' 已有密钥文件。请先清理该 ID 的旧密钥。"
+            }
+
+            $secret = Read-JsonFile -Path $oldSecretPath -DefaultValue $null
+            if ($null -ne $secret) {
+                $secret.profileId = $targetId
+                $secret.envKeyName = $profile.envKeyName
+                $secret.updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+                Write-Utf8File -Path $newSecretPath -Content (($secret | ConvertTo-Json -Depth 5) + [Environment]::NewLine)
+                if (-not [string]::Equals($oldSecretPath, $newSecretPath, [StringComparison]::OrdinalIgnoreCase)) {
+                    Remove-Item -LiteralPath $oldSecretPath -Force
+                }
+            }
+        }
+    }
+
+    if (-not [string]::Equals((Get-NormalizedDirectoryPath $oldCodexHome), (Get-NormalizedDirectoryPath $targetCodexHome), [StringComparison]::OrdinalIgnoreCase)) {
+        Move-DirectoryToDestination -Source $oldCodexHome -Destination $targetCodexHome
+    }
+    $profile.paths.codexHome = $targetCodexHome
+
+    if ($idChanged -and $oldProfileHome -and (Test-Path -LiteralPath $oldProfileHome -PathType Container)) {
+        Move-DirectoryToDestination -Source $oldProfileHome -Destination $profile.paths.profileHome
+    }
+
+    $profile.updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+    Ensure-Directory $profile.paths.profileHome
+    Write-ProfileConfig -Profile $profile
+    Write-ProfileLauncher -Profile $profile
+
+    if ($idChanged -and $oldLauncherPath -and (Test-Path -LiteralPath $oldLauncherPath) -and -not [string]::Equals($oldLauncherPath, $profile.paths.launcherPath, [StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $oldLauncherPath -Force
+    }
+
+    $profiles = @()
+    foreach ($item in @($state.profiles)) {
+        $isCurrentProfile = [object]::ReferenceEquals($item, $profile)
+        $isOldId = [string]::Equals($item.id, $oldId, [StringComparison]::OrdinalIgnoreCase)
+        $isTargetId = [string]::Equals($item.id, $profile.id, [StringComparison]::OrdinalIgnoreCase)
+        if (-not $isCurrentProfile -and -not $isOldId -and -not $isTargetId) {
+            $profiles += $item
+        }
+    }
+    $profiles += $profile
+    $state.profiles = @($profiles | Sort-Object id)
+    Write-State -State $state
+
+    [pscustomobject]@{
+        Id = $profile.id
+        Name = $profile.name
+        BaseUrl = $profile.baseUrl
+        Model = $profile.model
+        EnvKeyName = $profile.envKeyName
+        CodexHome = $profile.paths.codexHome
+        Workspace = $profile.workspace
+        ConfigPath = (Join-Path $profile.paths.codexHome "config.toml")
+        LauncherPath = $profile.paths.launcherPath
+        HasApiKey = [bool](Test-Path -LiteralPath (Get-ProfileSecretPath -Id $profile.id))
     }
 }
 
@@ -625,11 +905,17 @@ function Test-CodexApiProfile {
     }
 
     $status = "responses_failed"
-    if ($responsesResult.StatusCode -eq 401 -or $responsesResult.StatusCode -eq 403) {
+    if ($responsesResult.StatusCode -eq 401) {
         $status = "auth_failed"
+    }
+    elseif ($responsesResult.StatusCode -eq 403) {
+        $status = if ($modelsResult.StatusCode -ge 200 -and $modelsResult.StatusCode -lt 300) { "responses_forbidden" } else { "auth_failed" }
     }
     elseif ($responsesResult.StatusCode -eq 404 -or $responsesResult.StatusCode -eq 405) {
         $status = "responses_unsupported"
+    }
+    elseif ($responsesResult.StatusCode -eq 502 -or $responsesResult.StatusCode -eq 503 -or $responsesResult.StatusCode -eq 504) {
+        $status = "provider_unavailable"
     }
 
     $responseBody = $responsesResult.Body
@@ -676,6 +962,29 @@ function Resolve-PowerShellExecutable {
         return $cmd.Source
     }
     throw "没有找到 pwsh.exe 或 powershell.exe。"
+}
+
+function Resolve-WindowsTerminalExecutable {
+    $cmd = Get-Command wt.exe -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Source
+    }
+    return $null
+}
+
+function Start-DetachedProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$ArgumentList
+    )
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $FilePath
+    $psi.UseShellExecute = $false
+    foreach ($argument in $ArgumentList) {
+        [void]$psi.ArgumentList.Add($argument)
+    }
+    [System.Diagnostics.Process]::Start($psi) | Out-Null
 }
 
 function Invoke-CodexApiProfileInCurrentWindow {
@@ -755,11 +1064,22 @@ function Start-CodexApiProfile {
         $args += $CodexArgs
     }
 
-    Start-Process -FilePath $shell -ArgumentList $args | Out-Null
+    $terminal = Resolve-WindowsTerminalExecutable
+    if ($terminal) {
+        $title = "Codex $($profile.id)"
+        $terminalArgs = @("new-tab", "--title", $title, $shell) + $args
+        Start-DetachedProcess -FilePath $terminal -ArgumentList $terminalArgs
+        $shellDisplay = "Windows Terminal"
+    }
+    else {
+        Start-DetachedProcess -FilePath $shell -ArgumentList $args
+        $shellDisplay = $shell
+    }
+
     [pscustomobject]@{
         Id = $profile.id
         Started = $true
-        Shell = $shell
+        Shell = $shellDisplay
         CodexHome = $profile.paths.codexHome
         LauncherPath = $profile.paths.launcherPath
     }
@@ -804,6 +1124,8 @@ Export-ModuleMember -Function @(
     "Set-CodexApiProfileApiKey",
     "Set-CodexApiProfileWorkspace",
     "Set-CodexApiProfileName",
+    "Set-CodexApiProfileCodexHome",
+    "Set-CodexApiProfile",
     "Get-CodexApiProfile",
     "Get-CodexApiProfiles",
     "Test-CodexApiProfile",

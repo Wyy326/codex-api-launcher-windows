@@ -1,10 +1,21 @@
 # Changelog
 
+## 0.3.0-local
+
+- 本地桌面端新增“新增配置”窗口，可以填写中转地址、模型、API Key、配置存放目录和项目目录。
+- 桌面端只保留右侧“当前供应商”作为修改入口；左侧只负责刷新、新增和选择。
+- 右侧“保存修改”支持更新供应商 ID 和 API Key；API Key 留空时保留现有密钥。
+- 修改供应商 ID 时会迁移旧供应商目录、密钥文件和快捷启动脚本，避免复制后留下影子配置。
+- `New-CodexApiProfile` 支持 `-CodexHome`，每个 profile 可选择自己的配置存放目录。
+- 新增 `Set-CodexApiProfileCodexHome`，可修改已有 profile 的 `CODEX_HOME`，并移动旧目录内容。
+- 默认启动优先使用 Windows Terminal，减少传统 PowerShell 黑窗口。
+- 创建配置等耗时操作继续在后台执行，避免主界面假死。
+
 ## 0.2.1
 
 - 将桌面端和备用 PowerShell UI 的可见产品名改为 `CodexCLI API 多开启动器`。
-- API 配置列表改为“配置名称 | 模型 | 配置 ID”格式，减少只看 id 时的混淆。
-- 当前配置详情增加“配置 ID”，并将示例 profile 显示名改为更容易理解的中文名称。
+- API 配置列表改为“显示名称 | 模型 | 供应商 ID”格式，减少只看 id 时的混淆。
+- 当前配置详情增加“供应商 ID”，并将示例 profile 显示名改为更容易理解的中文名称。
 - 新增 `Set-CodexApiProfileName`，用于重命名 profile 显示名称。
 
 ## 0.2.0

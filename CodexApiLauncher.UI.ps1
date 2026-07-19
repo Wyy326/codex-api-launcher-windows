@@ -361,7 +361,7 @@ function Update-SelectedProfile {
     }
 
     $providerNameLabel.Text = "$($profile.Name)"
-    $providerMetaLabel.Text = "配置 ID: $($profile.Id)`r`n模型: $($profile.Model)`r`nBase URL: $($profile.BaseUrl)"
+    $providerMetaLabel.Text = "供应商 ID: $($profile.Id)`r`n模型: $($profile.Model)`r`nBase URL: $($profile.BaseUrl)"
 
     if ($profile.Workspace) {
         $savedProjectLabel.Text = "已保存默认项目: $($profile.Workspace)"

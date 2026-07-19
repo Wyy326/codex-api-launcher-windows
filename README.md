@@ -2,7 +2,7 @@
 
 一个轻量 Windows 桌面工具，用来启动多个彼此隔离的 Codex CLI 实例。它面向第三方 OpenAI-compatible API provider，不做 ChatGPT 登录账号隔离。
 
-每个 API 配置都会拥有独立的 `CODEX_HOME`、`config.toml`、API Key 环境变量、日志、sessions 和快捷启动脚本。API Key 不会写入 TOML、脚本或仓库文件。界面里的配置列表使用“配置名称 | 模型 | 配置 ID”格式，方便区分多个中转。
+每个 API 配置都会拥有独立的 `CODEX_HOME`、`config.toml`、API Key 环境变量、日志、sessions 和快捷启动脚本。API Key 不会写入 TOML、脚本或仓库文件。界面里的配置列表使用“显示名称 | 模型 | 供应商 ID”格式，方便区分多个中转。
 
 ## 文件
 
@@ -38,6 +38,10 @@ Launch UI.cmd
 UI 支持：
 
 - 选择已有 API 配置
+- 新增自定义 API 配置
+- 在右侧“当前供应商”里修改显示名称、供应商 ID、中转地址、模型、API Key 和配置目录
+- 为每个配置选择自己的配置存放目录，也就是实际 `CODEX_HOME`
+- 迁移配置目录；迁移会移动原 `CODEX_HOME` 内容，不保留一份影子配置
 - 选择项目文件夹
 - 在新的终端窗口里启动隔离的 Codex CLI
 - 可选保存或清除某个配置的默认项目文件夹
@@ -57,10 +61,10 @@ UI 支持：
 
 ```text
 dist\CodexApiLauncherDesktop-win-x64\CodexApiLauncher.exe
-dist\CodexApiLauncherDesktop-0.2.1-win-x64.zip
+dist\CodexApiLauncherDesktop-0.3.0-local-win-x64.zip
 ```
 
-发布包是 self-contained win-x64 构建，不需要目标机器额外安装 .NET 运行时。运行时仍会调用同目录的 PowerShell 模块，以复用已有的 profile、API Key 加密存储和 CODEX_HOME 隔离逻辑。
+发布包是 self-contained win-x64 构建，不需要目标机器额外安装 .NET 运行时。运行时仍会调用同目录的 PowerShell 模块，以复用已有的 profile、API Key 加密存储和 CODEX_HOME 隔离逻辑。默认启动优先走 Windows Terminal，减少传统 PowerShell 黑窗口。
 
 ## 导入模块
 
@@ -94,6 +98,8 @@ New-CodexApiProfile `
   -Name "ShuaiAPI" `
   -BaseUrl "https://api.shuaiapi.com/v1" `
   -Model "gpt-5.6-luna" `
+  -CodexHome "D:\CodexProfiles\shuaiapi" `
+  -Workspace "D:\workplace\your-project" `
   -ApiKey $key
 ```
 
@@ -159,6 +165,26 @@ Start-CodexApiProfile -Id "shuaiapi" -Workspace "D:\workplace\your-project" -InC
 Set-CodexApiProfileWorkspace -Id "shuaiapi" -Workspace "D:\workplace\your-project"
 Set-CodexApiProfileWorkspace -Id "shuaiapi" -Clear
 ```
+
+修改配置存放目录：
+
+```powershell
+Set-CodexApiProfileCodexHome -Id "shuaiapi" -CodexHome "D:\CodexProfiles\shuaiapi"
+```
+
+修改供应商 ID 或其他 provider 信息：
+
+```powershell
+Set-CodexApiProfile `
+  -Id "shuaiapi" `
+  -NewId "shuaiapi-main" `
+  -Name "ShuaiAPI 主力中转" `
+  -BaseUrl "https://api.shuaiapi.com/v1" `
+  -Model "gpt-5.6-luna" `
+  -CodexHome "D:\CodexProfiles\shuaiapi-main"
+```
+
+如果原 `CODEX_HOME` 位于旧供应商目录内，修改供应商 ID 会把目录、密钥文件和快捷启动脚本一起移动或改名。
 
 重命名配置显示名称：
 

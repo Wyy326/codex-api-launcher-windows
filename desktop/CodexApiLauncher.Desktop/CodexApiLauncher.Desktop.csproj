@@ -7,9 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>CodexApiLauncher</AssemblyName>
     <RootNamespace>CodexApiLauncher.Desktop</RootNamespace>
-    <Version>0.2.1</Version>
-    <FileVersion>0.2.1.0</FileVersion>
-    <AssemblyVersion>0.2.1.0</AssemblyVersion>
+    <Version>0.3.0</Version>
+    <FileVersion>0.3.0.0</FileVersion>
+    <AssemblyVersion>0.3.0.0</AssemblyVersion>
     <Product>CodexCLI API 多开启动器</Product>
     <Company>Wyy326</Company>
     <PublishSingleFile>true</PublishSingleFile>
@@ -28,7 +28,7 @@
     <Content Include="..\..\README.md" Link="README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" ExcludeFromSingleFile="true" />
     <Content Include="..\..\CHANGELOG.md" Link="CHANGELOG.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" ExcludeFromSingleFile="true" />
     <Content Include="..\..\LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" ExcludeFromSingleFile="true" />
-    <Content Include="..\..\docs\**\*" LinkBase="docs" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" ExcludeFromSingleFile="true" />
+    <Content Include="..\..\docs\**\*" Exclude="..\..\docs\project-archive\*.local.md" LinkBase="docs" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" ExcludeFromSingleFile="true" />
     <Content Include="..\..\examples\**\*" LinkBase="examples" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" ExcludeFromSingleFile="true" />
     <Content Include="..\..\templates\**\*" LinkBase="templates" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" ExcludeFromSingleFile="true" />
   </ItemGroup>
