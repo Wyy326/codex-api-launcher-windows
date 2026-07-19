@@ -9,6 +9,11 @@ launchers/
 *.tmp
 *.bak
 
+# .NET desktop build output
+desktop/**/bin/
+desktop/**/obj/
+dist/
+
 # OS/editor files
 .DS_Store
 Thumbs.db

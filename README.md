@@ -1,6 +1,6 @@
 # Codex API 多开启动器 for Windows
 
-一个轻量 PowerShell 工具，用来在 Windows 上启动多个彼此隔离的 Codex CLI 实例。它面向第三方 OpenAI-compatible API provider，不做 ChatGPT 登录账号隔离。
+一个轻量 Windows 桌面工具，用来启动多个彼此隔离的 Codex CLI 实例。它面向第三方 OpenAI-compatible API provider，不做 ChatGPT 登录账号隔离。
 
 每个 API 配置都会拥有独立的 `CODEX_HOME`、`config.toml`、API Key 环境变量、日志、sessions 和快捷启动脚本。API Key 不会写入 TOML、脚本或仓库文件。
 
@@ -8,14 +8,22 @@
 
 - `CodexApiLauncher.psm1` - API 配置管理模块。
 - `Run-CodexApiProfile.ps1` - 生成的 profile 启动脚本会调用它。
-- `CodexApiLauncher.UI.ps1` - 中文 Windows UI，可选择 API 配置和项目文件夹。
-- `Launch UI.cmd` - 双击打开 UI 的入口。
+- `desktop/CodexApiLauncher.Desktop` - C# WinForms 桌面端 exe 项目。
+- `build/Build-DesktopExe.ps1` - 生成 `CodexApiLauncher.exe` 的构建脚本。
+- `CodexApiLauncher.UI.ps1` - 备用 PowerShell UI，可选择 API 配置和项目文件夹。
+- `Launch UI.cmd` - 双击打开备用 PowerShell UI 的入口。
 - `templates/profile.config.toml` - 生成的 Codex 配置模板。
 - `examples/create-profile.example.ps1` - 创建 profile 的示例脚本。
 
 ## 日常使用
 
-双击仓库里的：
+推荐下载或构建桌面端包，然后双击：
+
+```text
+CodexApiLauncher.exe
+```
+
+如果只想使用脚本版 UI，可以双击仓库里的：
 
 ```text
 Launch UI.cmd
@@ -36,6 +44,23 @@ UI 支持：
 - 打开该配置的 `CODEX_HOME`
 - 运行 HTTP 连通性检查
 - 运行真实 Codex CLI 检查，适合只允许 CLI 请求形态的中转网关
+
+## 构建桌面端 exe
+
+需要 .NET 8 SDK。仓库目录运行：
+
+```powershell
+.\build\Build-DesktopExe.ps1
+```
+
+默认会生成：
+
+```text
+dist\CodexApiLauncherDesktop-win-x64\CodexApiLauncher.exe
+dist\CodexApiLauncherDesktop-0.2.0-win-x64.zip
+```
+
+发布包是 self-contained win-x64 构建，不需要目标机器额外安装 .NET 运行时。运行时仍会调用同目录的 PowerShell 模块，以复用已有的 profile、API Key 加密存储和 CODEX_HOME 隔离逻辑。
 
 ## 导入模块
 

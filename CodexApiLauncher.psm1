@@ -1,6 +1,6 @@
 Set-StrictMode -Version 2.0
 
-$script:LauncherVersion = "0.1.1"
+$script:LauncherVersion = "0.2.0"
 
 function Get-CodexApiLauncherRoot {
     [CmdletBinding()]

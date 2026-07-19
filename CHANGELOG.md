@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- 新增 C# WinForms 桌面端 `CodexApiLauncher.exe`。
+- 添加 `build/Build-DesktopExe.ps1`，可生成 self-contained win-x64 发布包。
+- 桌面端 exe 复用现有 PowerShell profile 模块，保留 API Key 加密存储、CODEX_HOME 隔离和快捷启动脚本生成逻辑。
+- 桌面端支持选择 API 配置、选择项目文件夹、启动 Codex、保存/清除默认项目、CLI 检查和 HTTP 检查。
+
 ## 0.1.1
 
 - 将 Windows UI 改为中文默认体验。
