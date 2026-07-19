@@ -1,22 +1,13 @@
 # Local Release Archive
 
-This folder is for local zip packages copied from the original Codex task workspace.
+This folder is for the current local zip package.
 
-The zip files are ignored by Git. Keep them here for local recovery and manual upload to GitHub Releases if needed.
+Zip files are ignored by Git. Keep only the latest local package here for recovery and manual upload to GitHub Releases if needed.
 
-## Copied Packages
+## Current Package
 
 | Package | Notes |
 | --- | --- |
-| `codex-api-launcher.zip` | Early CLI-only package. |
-| `codex-api-launcher-0.1.1.zip` | Chinese PowerShell UI package. |
-| `codex-api-launcher-desktop-0.2.0-win-x64.zip` | First WinForms desktop exe package. |
-| `codex-api-launcher-desktop-0.2.1-win-x64.zip` | Latest copied desktop zip from the original task workspace. |
-| `CodexApiLauncherDesktop-0.3.0-local-win-x64.zip` | Current local build from the consolidated source tree. |
-| `CodexApiLauncherDesktop-0.3.1-local-win-x64.zip` | Dashboard-style UI build with monochrome launcher styling. |
-| `CodexApiLauncherDesktop-0.3.2-local-win-x64.zip` | Build with embedded app logo and desktop shortcut icon support. |
-| `CodexApiLauncherDesktop-0.3.3-local-win-x64.zip` | Fixes button contrast, adds real nav pages, and supports `/models` model picker. |
-| `CodexApiLauncherDesktop-0.3.4-local-win-x64.zip` | Removes Quick Start, keeps refresh icon contrast, and widens the right-side workspace. |
 | `CodexApiLauncherDesktop-0.3.5-local-win-x64.zip` | Keeps refresh from dimming controls, removes gray fill from refresh states, and expands dashboard content across the right side. |
 
-If a new package is built from the current source tree, place it here as a local artifact and update this index.
+If a new package is built from the current source tree, replace the old local artifact and update this index.
