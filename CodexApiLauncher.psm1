@@ -1,6 +1,6 @@
 Set-StrictMode -Version 2.0
 
-$script:LauncherVersion = "0.3.0-local"
+$script:LauncherVersion = "0.3.3-local"
 
 function Get-CodexApiLauncherRoot {
     [CmdletBinding()]
@@ -936,6 +936,55 @@ function Test-CodexApiProfile {
     }
 }
 
+function Get-CodexApiProfileModels {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Id,
+        [int]$TimeoutSeconds = 30
+    )
+
+    $profile = Get-CodexApiProfile -Id $Id
+    $apiKey = Read-ProfileApiKey -Profile $profile
+    $modelsUrl = Join-ProviderEndpoint -BaseUrl $profile.baseUrl -Suffix "/models"
+    $modelsResult = Invoke-ProviderHttp -Method GET -Url $modelsUrl -ApiKey $apiKey -TimeoutSeconds $TimeoutSeconds
+
+    if (-not $modelsResult.IsSuccessStatusCode) {
+        throw "/models 请求失败，HTTP $($modelsResult.StatusCode): $($modelsResult.Body)"
+    }
+
+    $payload = $modelsResult.Body | ConvertFrom-Json
+    $items = @()
+    if ($payload.PSObject.Properties.Name -contains "data") {
+        $items = @($payload.data)
+    }
+    elseif ($payload.PSObject.Properties.Name -contains "models") {
+        $items = @($payload.models)
+    }
+
+    $models = New-Object System.Collections.Generic.List[string]
+    foreach ($item in $items) {
+        $modelId = $null
+        if ($item -is [string]) {
+            $modelId = $item
+        }
+        elseif ($item.PSObject.Properties.Name -contains "id") {
+            $modelId = [string]$item.id
+        }
+        elseif ($item.PSObject.Properties.Name -contains "model") {
+            $modelId = [string]$item.model
+        }
+        elseif ($item.PSObject.Properties.Name -contains "name") {
+            $modelId = [string]$item.name
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($modelId) -and -not $models.Contains($modelId)) {
+            $models.Add($modelId)
+        }
+    }
+
+    $models | Sort-Object
+}
+
 function Resolve-PowerShellExecutable {
     if ($PSHOME) {
         $candidate = Join-Path $PSHOME "pwsh.exe"
@@ -1128,6 +1177,7 @@ Export-ModuleMember -Function @(
     "Set-CodexApiProfile",
     "Get-CodexApiProfile",
     "Get-CodexApiProfiles",
+    "Get-CodexApiProfileModels",
     "Test-CodexApiProfile",
     "Start-CodexApiProfile",
     "Remove-CodexApiProfile"

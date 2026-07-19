@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Drawing.Drawing2D;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -53,9 +54,18 @@ internal static class Program
     }
 }
 
+internal enum LauncherPage
+{
+    Dashboard,
+    Config,
+    Logs,
+    Settings
+}
+
 internal sealed class LauncherForm : Form
 {
     private readonly PowerShellBridge bridge = new(AppContext.BaseDirectory);
+    private readonly ToolTip toolTip = new();
 
     private readonly Color windowColor = Color.FromArgb(255, 255, 255);
     private readonly Color surfaceColor = Color.FromArgb(255, 255, 255);
@@ -72,7 +82,7 @@ internal sealed class LauncherForm : Form
     private ListView profileList = null!;
     private TextBox providerNameBox = null!;
     private TextBox providerIdBox = null!;
-    private TextBox providerModelBox = null!;
+    private ComboBox providerModelBox = null!;
     private TextBox providerBaseUrlBox = null!;
     private TextBox providerApiKeyBox = null!;
     private TextBox providerCodexHomeBox = null!;
@@ -83,6 +93,7 @@ internal sealed class LauncherForm : Form
     private Button addProfileButton = null!;
     private Button saveProfileButton = null!;
     private Button migrateHomeButton = null!;
+    private Button fetchModelsButton = null!;
     private Button cliCheckButton = null!;
     private Button httpTestButton = null!;
     private Button saveProjectButton = null!;
@@ -93,8 +104,21 @@ internal sealed class LauncherForm : Form
     private Label outputTitleLabel = null!;
     private Label outputMetaLabel = null!;
     private RichTextBox statusText = null!;
+    private RichTextBox logsText = null!;
+    private Label configSummaryLabel = null!;
+    private Label settingsSummaryLabel = null!;
+    private Button dashboardNavButton = null!;
+    private Button configNavButton = null!;
+    private Button logsNavButton = null!;
+    private Button settingsNavButton = null!;
+    private Panel dashboardPage = null!;
+    private Panel configPage = null!;
+    private Panel logsPage = null!;
+    private Panel settingsPage = null!;
 
     private bool isBusy;
+    private LauncherPage activePage = LauncherPage.Dashboard;
+    private ProfileInfo? activeProfile;
 
     public LauncherForm()
     {
@@ -129,8 +153,8 @@ internal sealed class LauncherForm : Form
         Text = "CodexCLI API 多开启动器";
         Program.ApplyAppIcon(this);
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(1120, 820);
-        MinimumSize = new Size(1140, 820);
+        ClientSize = new Size(1140, 900);
+        MinimumSize = new Size(960, 820);
         BackColor = windowColor;
         Font = UiFont();
 
@@ -145,11 +169,15 @@ internal sealed class LauncherForm : Form
 
         topBar.Controls.Add(NewLabel(">_", 24, 22, 36, 26, 11, FontStyle.Bold, primaryColor));
         topBar.Controls.Add(NewLabel("CodexCLI API 多开启动器", 68, 18, 330, 32, 14, FontStyle.Bold, primaryColor));
-        topBar.Controls.Add(NewLabel("仪表盘", 478, 24, 58, 24, 9, FontStyle.Bold, primaryColor));
-        topBar.Controls.Add(NewLabel("配置", 552, 24, 44, 24, 9, FontStyle.Regular, mutedColor));
-        topBar.Controls.Add(NewLabel("日志", 612, 24, 44, 24, 9, FontStyle.Regular, mutedColor));
-        topBar.Controls.Add(NewLabel("设置", 672, 24, 44, 24, 9, FontStyle.Regular, mutedColor));
-        var quickStartButton = NewButton("快速开始", 994, 20, 98, 32, primary: true);
+        dashboardNavButton = NewNavButton("仪表盘", 462, 18, 74, LauncherPage.Dashboard);
+        configNavButton = NewNavButton("配置", 546, 18, 58, LauncherPage.Config);
+        logsNavButton = NewNavButton("日志", 614, 18, 58, LauncherPage.Logs);
+        settingsNavButton = NewNavButton("设置", 682, 18, 58, LauncherPage.Settings);
+        topBar.Controls.Add(dashboardNavButton);
+        topBar.Controls.Add(configNavButton);
+        topBar.Controls.Add(logsNavButton);
+        topBar.Controls.Add(settingsNavButton);
+        var quickStartButton = NewButton("快速开始", 744, 20, 98, 32, primary: true);
         quickStartButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         quickStartButton.Click += (_, _) => workspaceBox.Focus();
         topBar.Controls.Add(quickStartButton);
@@ -158,22 +186,24 @@ internal sealed class LauncherForm : Form
         topBorder.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         Controls.Add(topBorder);
 
-        var leftPanel = NewPanel(0, 72, 280, 724);
+        var leftPanel = NewPanel(0, 72, 280, 804);
         leftPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom;
         Controls.Add(leftPanel);
 
         var sideBorder = NewSeparator(280, 72, 1);
-        sideBorder.Size = new Size(1, 724);
+        sideBorder.Size = new Size(1, 804);
         sideBorder.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom;
         Controls.Add(sideBorder);
 
-        var rightPanel = NewPanel(312, 96, 780, 700);
-        rightPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-        Controls.Add(rightPanel);
+        var rightPanel = NewPanel(304, 96, 640, 780);
+        dashboardPage = rightPanel;
+        dashboardPage.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+        Controls.Add(dashboardPage);
 
         leftPanel.Controls.Add(NewLabel("API 配置文件", 24, 24, 188, 28, 12, FontStyle.Bold));
 
-        var refreshButton = NewButton("刷新", 214, 22, 44, 30);
+        var refreshButton = NewIconButton("refresh", 222, 20, 34, 34);
+        toolTip.SetToolTip(refreshButton, "刷新配置列表");
         refreshButton.Click += async (_, _) => await RefreshProfilesAsync();
         leftPanel.Controls.Add(refreshButton);
 
@@ -202,9 +232,7 @@ internal sealed class LauncherForm : Form
         profileList.Resize += (_, _) => ResizeProfileColumns();
         profileList.DrawColumnHeader += (_, e) => e.DrawDefault = true;
         profileList.DrawSubItem += DrawProfileSubItem;
-        profileList.Columns.Add("名称");
-        profileList.Columns.Add("模型");
-        profileList.Columns.Add("供应商");
+        profileList.Columns.Add("配置");
         ResizeProfileColumns();
         leftPanel.Controls.Add(profileList);
 
@@ -219,11 +247,11 @@ internal sealed class LauncherForm : Form
 
         rightPanel.Controls.Add(NewLabel("当前 API 配置", 16, 16, 170, 28, 12, FontStyle.Bold));
 
-        saveProfileButton = NewButton("保存修改", 540, 14, 96, 32, primary: true);
+        saveProfileButton = NewButton("保存修改", 300, 14, 96, 32, primary: true);
         saveProfileButton.Click += async (_, _) => await SaveProfileChangesAsync();
         rightPanel.Controls.Add(saveProfileButton);
 
-        homeButton = NewButton("打开目录", 648, 14, 96, 32);
+        homeButton = NewButton("打开目录", 410, 14, 96, 32);
         homeButton.Click += (_, _) =>
         {
             var profile = SelectedProfile();
@@ -234,31 +262,31 @@ internal sealed class LauncherForm : Form
         };
         rightPanel.Controls.Add(homeButton);
 
-        providerNameBox = AddEditableField(rightPanel, "显示名称", 16, 58, 592);
-        providerIdBox = AddEditableField(rightPanel, "供应商 ID", 16, 92, 592);
-        providerModelBox = AddEditableField(rightPanel, "模型", 16, 126, 592);
-        providerBaseUrlBox = AddEditableField(rightPanel, "中转地址", 16, 160, 592);
-        providerApiKeyBox = AddEditableField(rightPanel, "API Key", 16, 194, 592);
+        providerNameBox = AddEditableField(rightPanel, "显示名称", 16, 58, 360);
+        providerIdBox = AddEditableField(rightPanel, "供应商 ID", 16, 92, 360);
+        providerModelBox = AddModelField(rightPanel, "模型", 16, 126);
+        providerBaseUrlBox = AddEditableField(rightPanel, "中转地址", 16, 160, 360);
+        providerApiKeyBox = AddEditableField(rightPanel, "API Key", 16, 194, 360);
         providerApiKeyBox.UseSystemPasswordChar = true;
         providerApiKeyBox.PlaceholderText = "留空则保留现有 API Key";
         providerCodexHomeBox = AddCodexHomeField(rightPanel, "配置目录", 16, 228);
 
-        rightPanel.Controls.Add(NewSeparator(16, 274, 728));
+        rightPanel.Controls.Add(NewSeparator(16, 274, 604));
         rightPanel.Controls.Add(NewLabel("项目文件夹", 16, 294, 180, 26, 11, FontStyle.Bold));
 
-        savedProjectLabel = NewLabel("已保存默认项目：无", 16, 320, 728, 24, 9, FontStyle.Regular, mutedColor);
+        savedProjectLabel = NewLabel("已保存默认项目：无", 16, 320, 604, 24, 9, FontStyle.Regular, mutedColor);
         rightPanel.Controls.Add(savedProjectLabel);
 
         workspaceBox = new TextBox
         {
             Location = new Point(16, 348),
-            Size = new Size(568, 28),
+            Size = new Size(330, 28),
             Font = UiFont(9.5f)
         };
         workspaceBox.TextChanged += (_, _) => UpdateButtons();
         rightPanel.Controls.Add(workspaceBox);
 
-        var browseButton = NewButton("选择文件夹", 596, 344, 112, 32, primary: true);
+        var browseButton = NewButton("选择文件夹", 356, 344, 112, 32, primary: true);
         browseButton.Click += (_, _) => BrowseWorkspace();
         rightPanel.Controls.Add(browseButton);
 
@@ -272,15 +300,15 @@ internal sealed class LauncherForm : Form
         };
         rightPanel.Controls.Add(rememberCheck);
 
-        saveProjectButton = NewButton("保存默认", 486, 384, 102, 32);
+        saveProjectButton = NewButton("保存默认", 260, 384, 102, 32);
         saveProjectButton.Click += async (_, _) => await SaveWorkspaceAsync();
         rightPanel.Controls.Add(saveProjectButton);
 
-        clearProjectButton = NewButton("清除默认", 600, 384, 108, 32);
+        clearProjectButton = NewButton("清除默认", 374, 384, 108, 32);
         clearProjectButton.Click += async (_, _) => await ClearWorkspaceAsync();
         rightPanel.Controls.Add(clearProjectButton);
 
-        rightPanel.Controls.Add(NewSeparator(16, 434, 728));
+        rightPanel.Controls.Add(NewSeparator(16, 434, 604));
 
         startButton = NewButton("启动 Codex", 16, 458, 156, 40, primary: true);
         startButton.Font = UiFont(10.5f, FontStyle.Bold);
@@ -298,22 +326,22 @@ internal sealed class LauncherForm : Form
         outputTitleLabel = NewLabel("运行输出", 16, 520, 140, 26, 11, FontStyle.Bold);
         rightPanel.Controls.Add(outputTitleLabel);
 
-        outputMetaLabel = NewLabel("空闲", 108, 522, 300, 24, 9, FontStyle.Regular, mutedColor);
+        outputMetaLabel = NewLabel("空闲", 108, 522, 160, 24, 9, FontStyle.Regular, mutedColor);
         rightPanel.Controls.Add(outputMetaLabel);
 
-        copyOutputButton = NewButton("复制", 506, 516, 88, 32);
+        copyOutputButton = NewButton("复制输出", 300, 516, 112, 32);
         copyOutputButton.Click += (_, _) => CopyOutput();
         copyOutputButton.Enabled = false;
         rightPanel.Controls.Add(copyOutputButton);
 
-        clearOutputButton = NewButton("清空", 608, 516, 100, 32);
+        clearOutputButton = NewButton("清空", 430, 516, 100, 32);
         clearOutputButton.Click += (_, _) => ClearOutput();
         rightPanel.Controls.Add(clearOutputButton);
 
         statusText = new RichTextBox
         {
             Location = new Point(16, 556),
-            Size = new Size(728, 152),
+            Size = new Size(604, 152),
             ReadOnly = true,
             ScrollBars = RichTextBoxScrollBars.Vertical,
             Font = MonoFont(9.5f),
@@ -325,12 +353,211 @@ internal sealed class LauncherForm : Form
         };
         rightPanel.Controls.Add(statusText);
 
+        configPage = BuildConfigPage();
+        logsPage = BuildLogsPage();
+        settingsPage = BuildSettingsPage();
+        Controls.Add(configPage);
+        Controls.Add(logsPage);
+        Controls.Add(settingsPage);
+
+        ShowPage(LauncherPage.Dashboard);
         UpdateButtons();
+    }
+
+    private Button NewNavButton(string text, int x, int y, int width, LauncherPage page)
+    {
+        var button = NewButton(text, x, y, width, 36);
+        if (button is LauncherButton launcherButton)
+        {
+            launcherButton.IsNavigation = true;
+        }
+        button.Click += (_, _) => ShowPage(page);
+        return button;
+    }
+
+    private Button NewIconButton(string iconKind, int x, int y, int width, int height)
+    {
+        var button = NewButton("", x, y, width, height);
+        if (button is LauncherButton launcherButton)
+        {
+            launcherButton.IconKind = iconKind;
+        }
+        return button;
+    }
+
+    private ComboBox AddModelField(Control parent, string label, int x, int y)
+    {
+        parent.Controls.Add(NewLabel(label, x, y + 4, 86, 24, 9, FontStyle.Bold, mutedColor));
+        var box = new ComboBox
+        {
+            Location = new Point(x + 100, y),
+            Size = new Size(250, 28),
+            Font = UiFont(9.5f),
+            DropDownStyle = ComboBoxStyle.DropDown,
+            FlatStyle = FlatStyle.Flat,
+            AutoCompleteMode = AutoCompleteMode.SuggestAppend,
+            AutoCompleteSource = AutoCompleteSource.ListItems
+        };
+        parent.Controls.Add(box);
+
+        fetchModelsButton = NewButton("获取模型", x + 370, y - 2, 104, 32);
+        fetchModelsButton.Click += async (_, _) => await FetchModelsAsync();
+        parent.Controls.Add(fetchModelsButton);
+        return box;
+    }
+
+    private Panel BuildConfigPage()
+    {
+        var page = NewPanel(304, 96, 640, 780);
+        page.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+        page.Visible = false;
+        page.Controls.Add(NewLabel("配置", 16, 16, 180, 30, 14, FontStyle.Bold));
+        page.Controls.Add(NewLabel("这里集中处理本机配置文件、快捷启动脚本和当前供应商目录。", 16, 52, 590, 24, 9, FontStyle.Regular, mutedColor));
+
+        configSummaryLabel = NewLabel("", 16, 92, 604, 120, 9.5f, FontStyle.Regular, textColor);
+        page.Controls.Add(configSummaryLabel);
+
+        var openRootButton = NewButton("打开配置根目录", 16, 236, 150, 34);
+        openRootButton.Click += (_, _) => OpenFolder(GetDefaultLauncherHome());
+        page.Controls.Add(openRootButton);
+
+        var openLaunchersButton = NewButton("打开快捷脚本", 184, 236, 128, 34);
+        openLaunchersButton.Click += (_, _) => OpenFolder(bridge.GetLaunchersDir());
+        page.Controls.Add(openLaunchersButton);
+
+        var openCurrentHomeButton = NewButton("打开当前 CODEX_HOME", 16, 286, 174, 34);
+        openCurrentHomeButton.Click += (_, _) =>
+        {
+            var profile = SelectedProfile();
+            OpenFolder(profile?.CodexHome);
+        };
+        page.Controls.Add(openCurrentHomeButton);
+
+        var refreshButton = NewButton("刷新配置", 208, 286, 110, 34);
+        refreshButton.Click += async (_, _) => await RefreshProfilesAsync(SelectedProfile()?.Id);
+        page.Controls.Add(refreshButton);
+        return page;
+    }
+
+    private Panel BuildLogsPage()
+    {
+        var page = NewPanel(304, 96, 640, 780);
+        page.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+        page.Visible = false;
+        page.Controls.Add(NewLabel("日志", 16, 16, 180, 30, 14, FontStyle.Bold));
+        page.Controls.Add(NewLabel("显示最近一次启动、检查或配置操作的输出。", 16, 52, 590, 24, 9, FontStyle.Regular, mutedColor));
+
+        var copyButton = NewButton("复制日志", 300, 16, 96, 32);
+        copyButton.Click += (_, _) => CopyOutput();
+        page.Controls.Add(copyButton);
+
+        var clearButton = NewButton("清空日志", 412, 16, 96, 32);
+        clearButton.Click += (_, _) => ClearOutput();
+        page.Controls.Add(clearButton);
+
+        logsText = new RichTextBox
+        {
+            Location = new Point(16, 92),
+            Size = new Size(604, 580),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+            ReadOnly = true,
+            ScrollBars = RichTextBoxScrollBars.Vertical,
+            Font = MonoFont(9.5f),
+            BackColor = outputBackColor,
+            ForeColor = outputTextColor,
+            BorderStyle = BorderStyle.None,
+            DetectUrls = false,
+            WordWrap = false
+        };
+        page.Controls.Add(logsText);
+        return page;
+    }
+
+    private Panel BuildSettingsPage()
+    {
+        var page = NewPanel(304, 96, 640, 780);
+        page.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+        page.Visible = false;
+        page.Controls.Add(NewLabel("设置", 16, 16, 180, 30, 14, FontStyle.Bold));
+        page.Controls.Add(NewLabel("查看当前应用路径、运行时目录和公开仓库入口。", 16, 52, 590, 24, 9, FontStyle.Regular, mutedColor));
+
+        settingsSummaryLabel = NewLabel("", 16, 92, 604, 150, 9.5f, FontStyle.Regular, textColor);
+        page.Controls.Add(settingsSummaryLabel);
+
+        var openAppDirButton = NewButton("打开应用目录", 16, 266, 128, 34);
+        openAppDirButton.Click += (_, _) => OpenFolder(AppContext.BaseDirectory);
+        page.Controls.Add(openAppDirButton);
+
+        var openRuntimeButton = NewButton("打开运行时目录", 162, 266, 140, 34);
+        openRuntimeButton.Click += (_, _) => OpenFolder(GetDefaultLauncherHome());
+        page.Controls.Add(openRuntimeButton);
+
+        var openDesktopButton = NewButton("打开桌面", 314, 266, 104, 34);
+        openDesktopButton.Click += (_, _) => OpenFolder(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+        page.Controls.Add(openDesktopButton);
+
+        var githubButton = NewButton("打开 GitHub", 432, 266, 112, 34);
+        githubButton.Click += (_, _) => OpenUrl("https://github.com/Wyy326/codex-api-launcher-windows");
+        page.Controls.Add(githubButton);
+        return page;
+    }
+
+    private void ShowPage(LauncherPage page)
+    {
+        activePage = page;
+        if (dashboardPage is not null) dashboardPage.Visible = page == LauncherPage.Dashboard;
+        if (configPage is not null) configPage.Visible = page == LauncherPage.Config;
+        if (logsPage is not null) logsPage.Visible = page == LauncherPage.Logs;
+        if (settingsPage is not null) settingsPage.Visible = page == LauncherPage.Settings;
+        UpdateNavState();
+        UpdateInfoPages();
+    }
+
+    private void UpdateNavState()
+    {
+        SetNavActive(dashboardNavButton, activePage == LauncherPage.Dashboard);
+        SetNavActive(configNavButton, activePage == LauncherPage.Config);
+        SetNavActive(logsNavButton, activePage == LauncherPage.Logs);
+        SetNavActive(settingsNavButton, activePage == LauncherPage.Settings);
+    }
+
+    private static void SetNavActive(Button? button, bool active)
+    {
+        if (button is LauncherButton launcherButton)
+        {
+            launcherButton.IsActive = active;
+        }
+    }
+
+    private void UpdateInfoPages()
+    {
+        var profile = SelectedProfile();
+        if (configSummaryLabel is not null)
+        {
+            configSummaryLabel.Text = string.Join(Environment.NewLine, new[]
+            {
+                $"配置根目录: {GetDefaultLauncherHome()}",
+                $"快捷脚本目录: {bridge.GetLaunchersDir()}",
+                $"当前供应商: {profile?.Name ?? "未选择"}",
+                $"当前 CODEX_HOME: {profile?.CodexHome ?? "未选择"}",
+            });
+        }
+
+        if (settingsSummaryLabel is not null)
+        {
+            settingsSummaryLabel.Text = string.Join(Environment.NewLine, new[]
+            {
+                $"应用目录: {AppContext.BaseDirectory}",
+                $"运行时目录: {GetDefaultLauncherHome()}",
+                $"桌面目录: {Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)}",
+                "仓库: https://github.com/Wyy326/codex-api-launcher-windows",
+            });
+        }
     }
 
     private async Task AddProfileAsync()
     {
-        using var dialog = new AddProfileForm(UiFont, windowColor, surfaceColor, borderColor, textColor, mutedColor, primaryColor, primaryDarkColor);
+        using var dialog = new AddProfileForm(UiFont, windowColor, surfaceColor, textColor, mutedColor);
         if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Profile is null)
         {
             return;
@@ -378,6 +605,37 @@ internal sealed class LauncherForm : Form
             providerApiKeyBox.Text = "";
             await RefreshProfilesAsync(savedProfile?.Id ?? draft.Id);
         }
+    }
+
+    private async Task FetchModelsAsync()
+    {
+        var profile = RequireProfile();
+        await RunUiActionAsync("正在从当前供应商的 /models 获取模型列表...", () =>
+        {
+            var models = bridge.GetModels(profile.Id);
+            BeginInvoke((Action)(() =>
+            {
+                var current = providerModelBox.Text.Trim();
+                providerModelBox.BeginUpdate();
+                providerModelBox.Items.Clear();
+                foreach (var model in models)
+                {
+                    providerModelBox.Items.Add(model);
+                }
+                providerModelBox.EndUpdate();
+
+                if (!string.IsNullOrWhiteSpace(current) && models.Contains(current, StringComparer.OrdinalIgnoreCase))
+                {
+                    providerModelBox.Text = current;
+                }
+                else if (models.Count > 0 && string.IsNullOrWhiteSpace(current))
+                {
+                    providerModelBox.Text = models[0];
+                }
+
+                SetStatus($"已从 /models 获取 {models.Count} 个模型。可在模型下拉框中选择。");
+            }));
+        }, timeoutMilliseconds: 60_000);
     }
 
     private async Task MigrateCodexHomeAsync()
@@ -460,7 +718,7 @@ internal sealed class LauncherForm : Form
         var box = new TextBox
         {
             Location = new Point(x + 100, y),
-            Size = new Size(468, 28),
+            Size = new Size(250, 28),
             Font = UiFont(9.5f),
             ReadOnly = false,
             BackColor = fieldColor,
@@ -468,7 +726,7 @@ internal sealed class LauncherForm : Form
         };
         parent.Controls.Add(box);
 
-        migrateHomeButton = NewButton("迁移目录", x + 580, y - 2, 112, 32);
+        migrateHomeButton = NewButton("迁移目录", x + 370, y - 2, 104, 32);
         migrateHomeButton.Click += async (_, _) => await MigrateCodexHomeAsync();
         parent.Controls.Add(migrateHomeButton);
         return box;
@@ -490,19 +748,14 @@ internal sealed class LauncherForm : Form
 
     private Button NewButton(string text, int x, int y, int width, int height, bool primary = false)
     {
-        var button = new Button
+        var button = new LauncherButton
         {
             Text = text,
             Location = new Point(x, y),
             Size = new Size(width, height),
             Font = UiFont(9, primary ? FontStyle.Bold : FontStyle.Regular),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = primary ? primaryColor : surfaceColor,
-            ForeColor = primary ? Color.White : textColor
+            IsPrimary = primary
         };
-        button.FlatAppearance.BorderColor = primary ? primaryDarkColor : borderColor;
-        button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(51, 51, 51) : softColor;
-        button.FlatAppearance.MouseDownBackColor = primary ? Color.FromArgb(0, 0, 0) : Color.FromArgb(229, 229, 229);
         return button;
     }
 
@@ -515,22 +768,27 @@ internal sealed class LauncherForm : Form
 
         var item = e.Item;
         var selected = item.Selected;
+        using var canvasBrush = new SolidBrush(surfaceColor);
+        e.Graphics.FillRectangle(canvasBrush, e.Bounds);
+
+        var rowBounds = new Rectangle(
+            e.Bounds.X + 2,
+            e.Bounds.Y + 3,
+            Math.Max(0, e.Bounds.Width - 4),
+            Math.Max(0, e.Bounds.Height - 6));
         var background = selected
             ? primaryColor
             : item.Index % 2 == 0
-                ? surfaceColor
+                ? Color.White
                 : softColor;
 
+        using var rowPath = RoundedRect(rowBounds, 10);
         using var backgroundBrush = new SolidBrush(background);
-        e.Graphics.FillRectangle(backgroundBrush, e.Bounds);
+        e.Graphics.FillPath(backgroundBrush, rowPath);
 
-        var color = selected
-            ? Color.White
-            : e.ColumnIndex == 0
-                ? textColor
-                : mutedColor;
-        using var font = UiFont(e.ColumnIndex == 0 ? 9.0f : 8.5f, e.ColumnIndex == 0 ? FontStyle.Bold : FontStyle.Regular);
-        var textBounds = new Rectangle(e.Bounds.X + 8, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 12), e.Bounds.Height);
+        var color = selected ? Color.White : textColor;
+        using var font = UiFont(9.0f, selected ? FontStyle.Bold : FontStyle.Regular);
+        var textBounds = new Rectangle(rowBounds.X + 10, rowBounds.Y, Math.Max(0, rowBounds.Width - 18), rowBounds.Height);
         TextRenderer.DrawText(
             e.Graphics,
             e.SubItem?.Text ?? "",
@@ -539,24 +797,34 @@ internal sealed class LauncherForm : Form
             color,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
 
-        if (!selected && e.ColumnIndex == profileList.Columns.Count - 1)
+        if (!selected)
         {
             using var linePen = new Pen(Color.FromArgb(238, 238, 238));
-            e.Graphics.DrawLine(linePen, item.Bounds.Left + 8, item.Bounds.Bottom - 1, item.Bounds.Right - 8, item.Bounds.Bottom - 1);
+            e.Graphics.DrawLine(linePen, rowBounds.Left + 10, rowBounds.Bottom, rowBounds.Right - 10, rowBounds.Bottom);
         }
     }
 
     private void ResizeProfileColumns()
     {
-        if (profileList.Columns.Count < 3)
+        if (profileList.Columns.Count == 0)
         {
             return;
         }
 
-        var width = Math.Max(200, profileList.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 12);
-        profileList.Columns[0].Width = (int)(width * 0.42);
-        profileList.Columns[1].Width = (int)(width * 0.30);
-        profileList.Columns[2].Width = width - profileList.Columns[0].Width - profileList.Columns[1].Width;
+        var width = Math.Max(200, profileList.ClientSize.Width);
+        profileList.Columns[0].Width = width;
+    }
+
+    private static GraphicsPath RoundedRect(Rectangle bounds, int radius)
+    {
+        var path = new GraphicsPath();
+        var diameter = radius * 2;
+        path.AddArc(bounds.X, bounds.Y, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Y, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(bounds.X, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 
     private Label NewSeparator(int x, int y, int width)
@@ -583,9 +851,7 @@ internal sealed class LauncherForm : Form
                 var index = 0;
                 foreach (var profile in profiles.OrderBy(p => p.Name).ThenBy(p => p.Id))
                 {
-                    var item = new ListViewItem(profile.Name);
-                    item.SubItems.Add(profile.Model);
-                    item.SubItems.Add(profile.Id);
+                    var item = new ListViewItem(ProfileDisplayText(profile));
                     item.Tag = profile;
                     profileList.Items.Add(item);
 
@@ -602,18 +868,23 @@ internal sealed class LauncherForm : Form
                 if (profileList.Items.Count > 0)
                 {
                     var itemToSelect = profileList.Items[Math.Min(selectedIndex, profileList.Items.Count - 1)];
+                    var profileToSelect = itemToSelect.Tag as ProfileInfo;
+                    itemToSelect.Focused = true;
                     itemToSelect.Selected = true;
                     itemToSelect.EnsureVisible();
+                    profileList.FocusedItem = itemToSelect;
                     profileList.Select();
                     profileList.Refresh();
+                    PopulateSelectedProfile(profileToSelect);
                     SetStatus($"已加载 {profiles.Count} 个供应商配置。选择项目文件夹后即可启动。");
                 }
                 else
                 {
+                    activeProfile = null;
                     SetStatus("还没有找到任何供应商配置。请先新增供应商。");
+                    PopulateSelectedProfile(null);
                 }
 
-                UpdateSelectedProfile();
             }));
         });
     }
@@ -621,10 +892,17 @@ internal sealed class LauncherForm : Form
     private void UpdateSelectedProfile()
     {
         var profile = SelectedProfile();
+        PopulateSelectedProfile(profile);
+    }
+
+    private void PopulateSelectedProfile(ProfileInfo? profile)
+    {
+        activeProfile = profile;
         if (profile is null)
         {
             providerNameBox.Text = "";
             providerIdBox.Text = "";
+            providerModelBox.Items.Clear();
             providerModelBox.Text = "";
             providerBaseUrlBox.Text = "";
             providerApiKeyBox.Text = "";
@@ -637,6 +915,7 @@ internal sealed class LauncherForm : Form
 
         providerNameBox.Text = profile.Name;
         providerIdBox.Text = profile.Id;
+        providerModelBox.Items.Clear();
         providerModelBox.Text = profile.Model;
         providerBaseUrlBox.Text = profile.BaseUrl;
         providerApiKeyBox.Text = "";
@@ -657,11 +936,17 @@ internal sealed class LauncherForm : Form
         }
 
         UpdateButtons();
+        UpdateInfoPages();
     }
 
     private ProfileInfo? SelectedProfile()
     {
-        return profileList.SelectedItems.Count == 0 ? null : profileList.SelectedItems[0].Tag as ProfileInfo;
+        return profileList.SelectedItems.Count == 0 ? activeProfile : profileList.SelectedItems[0].Tag as ProfileInfo;
+    }
+
+    private static string ProfileDisplayText(ProfileInfo profile)
+    {
+        return $"{profile.Name} | {profile.Model} | {profile.Id}";
     }
 
     private bool WorkspaceReady()
@@ -678,6 +963,7 @@ internal sealed class LauncherForm : Form
         addProfileButton.Enabled = !isBusy;
         saveProfileButton.Enabled = !isBusy && hasProfile;
         migrateHomeButton.Enabled = !isBusy && hasProfile;
+        fetchModelsButton.Enabled = !isBusy && hasProfile;
         cliCheckButton.Enabled = !isBusy && hasProfile;
         httpTestButton.Enabled = !isBusy && hasProfile;
         homeButton.Enabled = !isBusy && hasProfile;
@@ -878,6 +1164,14 @@ internal sealed class LauncherForm : Form
         statusText.AppendText(text);
         statusText.SelectionStart = 0;
         statusText.ScrollToCaret();
+        if (logsText is not null)
+        {
+            logsText.Clear();
+            logsText.SelectionColor = outputTextColor;
+            logsText.AppendText(text);
+            logsText.SelectionStart = 0;
+            logsText.ScrollToCaret();
+        }
         copyOutputButton.Enabled = !string.IsNullOrWhiteSpace(text);
     }
 
@@ -896,6 +1190,7 @@ internal sealed class LauncherForm : Form
     private void ClearOutput()
     {
         statusText.Clear();
+        logsText?.Clear();
         outputMetaLabel.Text = "空闲";
         copyOutputButton.Enabled = false;
     }
@@ -915,22 +1210,28 @@ internal sealed class LauncherForm : Form
             UseShellExecute = true
         });
     }
+
+    private static void OpenUrl(string url)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = url,
+            UseShellExecute = true
+        });
+    }
 }
 
 internal sealed class AddProfileForm : Form
 {
     private readonly Func<float, FontStyle, Font> uiFont;
     private readonly Color surfaceColor;
-    private readonly Color borderColor;
     private readonly Color textColor;
     private readonly Color mutedColor;
-    private readonly Color primaryColor;
-    private readonly Color primaryDarkColor;
 
     private TextBox nameBox = null!;
     private TextBox idBox = null!;
     private TextBox baseUrlBox = null!;
-    private TextBox modelBox = null!;
+    private ComboBox modelBox = null!;
     private TextBox apiKeyBox = null!;
     private TextBox configDirBox = null!;
     private TextBox projectDirBox = null!;
@@ -948,19 +1249,13 @@ internal sealed class AddProfileForm : Form
         Func<float, FontStyle, Font> uiFont,
         Color windowColor,
         Color surfaceColor,
-        Color borderColor,
         Color textColor,
-        Color mutedColor,
-        Color primaryColor,
-        Color primaryDarkColor)
+        Color mutedColor)
     {
         this.uiFont = uiFont;
         this.surfaceColor = surfaceColor;
-        this.borderColor = borderColor;
         this.textColor = textColor;
         this.mutedColor = mutedColor;
-        this.primaryColor = primaryColor;
-        this.primaryDarkColor = primaryDarkColor;
 
         Text = "新增供应商";
         Program.ApplyAppIcon(this);
@@ -992,7 +1287,7 @@ internal sealed class AddProfileForm : Form
         nameBox = AddTextRow(panel, "显示名称", 54, "例如：0xPsyche 福利中转");
         idBox = AddSupplierIdRow(panel, 98);
         baseUrlBox = AddTextRow(panel, "中转地址", 142, "例如：https://example.com/v1");
-        modelBox = AddTextRow(panel, "模型", 186, "例如：gpt-5.6-sol");
+        modelBox = AddModelRow(panel, 186);
         apiKeyBox = AddTextRow(panel, "API Key", 230, "不会写入 TOML 或脚本");
         apiKeyBox.UseSystemPasswordChar = true;
 
@@ -1102,6 +1397,27 @@ internal sealed class AddProfileForm : Form
         return box;
     }
 
+    private ComboBox AddModelRow(Control parent, int y)
+    {
+        parent.Controls.Add(NewLabel("模型", 20, y + 4, 132, 24, 9, FontStyle.Bold));
+        var box = new ComboBox
+        {
+            Location = new Point(166, y),
+            Size = new Size(398, 28),
+            Font = uiFont(9.5f, FontStyle.Regular),
+            DropDownStyle = ComboBoxStyle.DropDown,
+            FlatStyle = FlatStyle.Flat,
+            AutoCompleteMode = AutoCompleteMode.SuggestAppend,
+            AutoCompleteSource = AutoCompleteSource.ListItems
+        };
+        parent.Controls.Add(box);
+
+        var button = NewButton("获取模型", 590, y - 2, 102, 32);
+        button.Click += async (_, _) => await FetchDraftModelsAsync();
+        parent.Controls.Add(button);
+        return box;
+    }
+
     private TextBox AddPathRow(Control parent, string label, int y, string placeholder, EventHandler browseHandler)
     {
         parent.Controls.Add(NewLabel(label, 20, y + 4, 132, 24, 9, FontStyle.Bold));
@@ -1173,6 +1489,173 @@ internal sealed class AddProfileForm : Form
         }
     }
 
+    private async Task FetchDraftModelsAsync()
+    {
+        var baseUrl = baseUrlBox.Text.Trim();
+        var apiKey = apiKeyBox.Text;
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            validationLabel.Text = "请先填写完整的 http 或 https 中转地址。";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            validationLabel.Text = "请先填写 API Key，再获取模型列表。";
+            return;
+        }
+
+        try
+        {
+            UseWaitCursor = true;
+            validationLabel.Text = "正在请求 /models...";
+            var models = await FetchModelIdsAsync(baseUrl, apiKey);
+            var current = modelBox.Text.Trim();
+
+            modelBox.BeginUpdate();
+            try
+            {
+                modelBox.Items.Clear();
+                foreach (var model in models)
+                {
+                    modelBox.Items.Add(model);
+                }
+            }
+            finally
+            {
+                modelBox.EndUpdate();
+            }
+
+            if (!string.IsNullOrWhiteSpace(current) && models.Contains(current, StringComparer.OrdinalIgnoreCase))
+            {
+                modelBox.Text = current;
+            }
+            else if (models.Count > 0 && string.IsNullOrWhiteSpace(current))
+            {
+                modelBox.Text = models[0];
+            }
+
+            validationLabel.Text = models.Count == 0
+                ? "/models 返回成功，但没有识别到模型 ID。"
+                : $"已获取 {models.Count} 个模型，可在下拉框中选择。";
+        }
+        catch (Exception ex)
+        {
+            validationLabel.Text = $"获取模型失败：{ex.Message}";
+        }
+        finally
+        {
+            UseWaitCursor = false;
+        }
+    }
+
+    private static async Task<List<string>> FetchModelIdsAsync(string baseUrl, string apiKey)
+    {
+        var modelsUrl = JoinProviderEndpoint(baseUrl, "/models");
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        using var request = new HttpRequestMessage(HttpMethod.Get, modelsUrl);
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + apiKey.Trim());
+        request.Headers.TryAddWithoutValidation("User-Agent", "CodexApiLauncher/0.3");
+
+        using var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"/models 请求失败，HTTP {(int)response.StatusCode}: {TrimForValidation(body, 260)}");
+        }
+
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return new List<string>();
+        }
+
+        using var document = JsonDocument.Parse(body);
+        var modelIds = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        ExtractModelIds(document.RootElement, modelIds);
+        return modelIds.ToList();
+    }
+
+    private static string JoinProviderEndpoint(string baseUrl, string suffix)
+    {
+        return baseUrl.TrimEnd('/') + suffix;
+    }
+
+    private static void ExtractModelIds(JsonElement root, ISet<string> modelIds)
+    {
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            AddModelItems(root, modelIds);
+            return;
+        }
+
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        if (root.TryGetProperty("data", out var data))
+        {
+            AddModelItems(data, modelIds);
+        }
+
+        if (root.TryGetProperty("models", out var models))
+        {
+            AddModelItems(models, modelIds);
+        }
+    }
+
+    private static void AddModelItems(JsonElement value, ISet<string> modelIds)
+    {
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in value.EnumerateArray())
+            {
+                AddModelItem(item, modelIds);
+            }
+            return;
+        }
+
+        AddModelItem(value, modelIds);
+    }
+
+    private static void AddModelItem(JsonElement item, ISet<string> modelIds)
+    {
+        if (item.ValueKind == JsonValueKind.String)
+        {
+            AddModelId(item.GetString(), modelIds);
+            return;
+        }
+
+        if (item.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        foreach (var propertyName in new[] { "id", "model", "name" })
+        {
+            if (item.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String)
+            {
+                AddModelId(value.GetString(), modelIds);
+                return;
+            }
+        }
+    }
+
+    private static void AddModelId(string? modelId, ISet<string> modelIds)
+    {
+        if (!string.IsNullOrWhiteSpace(modelId))
+        {
+            modelIds.Add(modelId.Trim());
+        }
+    }
+
+    private static string TrimForValidation(string value, int maxLength)
+    {
+        var clean = Regex.Replace(value ?? "", @"\s+", " ").Trim();
+        return clean.Length <= maxLength ? clean : clean[..maxLength] + "...";
+    }
+
     private Label NewLabel(string text, int x, int y, int width, int height, float size, FontStyle style, Color? color = null)
     {
         return new Label
@@ -1189,19 +1672,14 @@ internal sealed class AddProfileForm : Form
 
     private Button NewButton(string text, int x, int y, int width, int height, bool primary = false)
     {
-        var button = new Button
+        var button = new LauncherButton
         {
             Text = text,
             Location = new Point(x, y),
             Size = new Size(width, height),
             Font = uiFont(9, primary ? FontStyle.Bold : FontStyle.Regular),
-            FlatStyle = FlatStyle.Flat,
-            BackColor = primary ? primaryColor : Color.FromArgb(250, 251, 250),
-            ForeColor = primary ? Color.White : textColor
+            IsPrimary = primary
         };
-        button.FlatAppearance.BorderColor = primary ? primaryDarkColor : borderColor;
-        button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(51, 51, 51) : Color.FromArgb(245, 245, 245);
-        button.FlatAppearance.MouseDownBackColor = primary ? Color.Black : Color.FromArgb(229, 229, 229);
         return button;
     }
 
@@ -1368,6 +1846,173 @@ internal sealed class AddProfileForm : Form
 
         var id = builder.ToString().Trim('-', '_');
         return string.IsNullOrWhiteSpace(id) ? "" : id;
+    }
+}
+
+internal sealed class LauncherButton : Button
+{
+    private bool hovering;
+    private bool pressing;
+    private bool isActive;
+
+    public bool IsPrimary { get; set; }
+    public bool IsNavigation { get; set; }
+    public string IconKind { get; set; } = "";
+
+    public bool IsActive
+    {
+        get => isActive;
+        set
+        {
+            isActive = value;
+            Invalidate();
+        }
+    }
+
+    public LauncherButton()
+    {
+        SetStyle(
+            ControlStyles.UserPaint |
+            ControlStyles.AllPaintingInWmPaint |
+            ControlStyles.OptimizedDoubleBuffer |
+            ControlStyles.ResizeRedraw,
+            true);
+        FlatStyle = FlatStyle.Flat;
+        FlatAppearance.BorderSize = 0;
+        UseVisualStyleBackColor = false;
+        Cursor = Cursors.Hand;
+    }
+
+    protected override void OnMouseEnter(EventArgs e)
+    {
+        hovering = true;
+        Invalidate();
+        base.OnMouseEnter(e);
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        hovering = false;
+        pressing = false;
+        Invalidate();
+        base.OnMouseLeave(e);
+    }
+
+    protected override void OnMouseDown(MouseEventArgs mevent)
+    {
+        pressing = true;
+        Invalidate();
+        base.OnMouseDown(mevent);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs mevent)
+    {
+        pressing = false;
+        Invalidate();
+        base.OnMouseUp(mevent);
+    }
+
+    protected override void OnEnabledChanged(EventArgs e)
+    {
+        Invalidate();
+        base.OnEnabledChanged(e);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        e.Graphics.Clear(Parent?.BackColor ?? Color.White);
+        var rect = new Rectangle(0, 0, Width - 1, Height - 1);
+        var radius = Math.Min(12, Math.Max(6, Height / 3));
+
+        var colors = ResolveColors();
+        using var path = RoundedRect(rect, radius);
+        using var background = new SolidBrush(colors.Background);
+        e.Graphics.FillPath(background, path);
+        using var border = new Pen(colors.Border);
+        e.Graphics.DrawPath(border, path);
+
+        if (IsActive && IsNavigation)
+        {
+            using var activePen = new Pen(Color.FromArgb(26, 26, 26), 2);
+            e.Graphics.DrawLine(activePen, 12, Height - 4, Width - 12, Height - 4);
+        }
+
+        if (IconKind.Equals("refresh", StringComparison.OrdinalIgnoreCase))
+        {
+            DrawRefreshIcon(e.Graphics, colors.Foreground);
+        }
+        else
+        {
+            TextRenderer.DrawText(
+                e.Graphics,
+                Text,
+                Font,
+                rect,
+                colors.Foreground,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        }
+    }
+
+    private (Color Background, Color Foreground, Color Border) ResolveColors()
+    {
+        var black = Color.FromArgb(26, 26, 26);
+        var dark = Color.Black;
+        var white = Color.White;
+        var soft = Color.FromArgb(245, 245, 245);
+        var border = Color.FromArgb(204, 204, 204);
+        var muted = Color.FromArgb(102, 102, 102);
+        var disabledBack = Color.FromArgb(229, 229, 229);
+        var disabledText = Color.FromArgb(77, 77, 77);
+
+        if (!Enabled)
+        {
+            return (disabledBack, disabledText, Color.FromArgb(210, 210, 210));
+        }
+
+        if (IsPrimary)
+        {
+            return (pressing ? dark : hovering ? Color.FromArgb(51, 51, 51) : black, white, dark);
+        }
+
+        if (IsNavigation)
+        {
+            if (IsActive)
+            {
+                return (soft, black, soft);
+            }
+            return (hovering ? soft : white, hovering ? black : muted, hovering ? soft : white);
+        }
+
+        return (hovering ? soft : white, black, border);
+    }
+
+    private void DrawRefreshIcon(Graphics graphics, Color color)
+    {
+        var size = Math.Min(Width, Height) - 14;
+        var x = (Width - size) / 2;
+        var y = (Height - size) / 2;
+        using var pen = new Pen(color, 2.0f)
+        {
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round
+        };
+        graphics.DrawArc(pen, x, y, size, size, 35, 280);
+        var tip = new PointF(x + size - 1, y + size * 0.36f);
+        graphics.DrawLine(pen, tip, new PointF(tip.X - 6, tip.Y - 1));
+        graphics.DrawLine(pen, tip, new PointF(tip.X - 1, tip.Y + 6));
+    }
+
+    private static GraphicsPath RoundedRect(Rectangle bounds, int radius)
+    {
+        var path = new GraphicsPath();
+        var diameter = radius * 2;
+        path.AddArc(bounds.X, bounds.Y, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Y, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(bounds.X, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 }
 
@@ -1541,6 +2186,24 @@ internal sealed class PowerShellBridge
     {
         var output = RunModule($"$result = Test-CodexApiProfile -Id {Quote(id)}; ConvertTo-Json -InputObject $result -Depth 8 -Compress");
         return JsonSerializer.Deserialize<ProfileTestResult>(output.StandardOutput.Trim(), JsonOptions) ?? new ProfileTestResult();
+    }
+
+    public List<string> GetModels(string id)
+    {
+        var output = RunModule($"$result = @(Get-CodexApiProfileModels -Id {Quote(id)}); ConvertTo-Json -InputObject $result -Depth 8 -Compress", timeoutMilliseconds: 60_000);
+        var json = output.StandardOutput.Trim();
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new List<string>();
+        }
+
+        if (json.StartsWith("\"", StringComparison.Ordinal))
+        {
+            var single = JsonSerializer.Deserialize<string>(json, JsonOptions);
+            return string.IsNullOrWhiteSpace(single) ? new List<string>() : new List<string> { single };
+        }
+
+        return JsonSerializer.Deserialize<List<string>>(json, JsonOptions) ?? new List<string>();
     }
 
     public string RunCliCheck(string id, string workspace)
