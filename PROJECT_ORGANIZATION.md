@@ -23,7 +23,7 @@ The original Codex task workspace is kept as a staging and historical source. It
 
 - API keys and encrypted secrets
 - Generated profile directories
-- Generated `CODEX_HOME` contents
+- Generated shared `CODEX_HOME` contents and profile overlay TOML files
 - Local release zip files
 - Machine-specific task IDs, Codex task paths, and migration notes
 
@@ -40,9 +40,12 @@ The launcher must not modify the default Codex Desktop or Codex CLI configuratio
 Each launcher profile owns its own child-process environment:
 
 ```text
-CODEX_HOME=<profile codex-home>
+CODEX_HOME=%LOCALAPPDATA%\CodexApiLauncher\codex-home
 CODEX_API_<ID>_KEY=<runtime key>
+codex --profile <id> -C <workspace>
 ```
+
+Profile-specific Codex routing lives in `%LOCALAPPDATA%\CodexApiLauncher\codex-home\<id>.config.toml`.
 
 The API key is stored through the current Windows user's protected secret storage under `%LOCALAPPDATA%\CodexApiLauncher\secrets`, not in TOML, scripts, logs, or source files.
 

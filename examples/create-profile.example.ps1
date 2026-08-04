@@ -8,6 +8,8 @@ New-CodexApiProfile `
     -Name "ShuaiAPI" `
     -BaseUrl "https://api.shuaiapi.com/v1" `
     -Model "gpt-5.6-luna" `
+    -ApprovalPolicy "on-request" `
+    -SandboxMode "workspace-write" `
     -ApiKey $apiKey
 
 List-CodexApiProfiles

@@ -1,6 +1,7 @@
 Set-StrictMode -Version 2.0
 
-$script:LauncherVersion = "0.3.5-local"
+$script:LauncherVersion = "0.4.0-local"
+$script:StateSchemaVersion = 2
 
 function Get-CodexApiLauncherRoot {
     [CmdletBinding()]
@@ -31,6 +32,10 @@ function Get-SecretsDir {
 
 function Get-LaunchersDir {
     Join-Path (Get-CodexApiLauncherRoot) "launchers"
+}
+
+function Get-DefaultSharedCodexHome {
+    Join-Path (Get-CodexApiLauncherRoot) "codex-home"
 }
 
 function Ensure-Directory {
@@ -72,31 +77,281 @@ function Read-JsonFile {
     return ($raw | ConvertFrom-Json)
 }
 
+function Get-ObjectPropertyValue {
+    param(
+        [AllowNull()]$Object,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [AllowNull()]$DefaultValue = $null
+    )
+
+    if ($null -eq $Object) {
+        return $DefaultValue
+    }
+
+    if ($Object -is [System.Collections.IDictionary]) {
+        if ($Object.Contains($Name)) {
+            return $Object[$Name]
+        }
+        return $DefaultValue
+    }
+
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -ne $property) {
+        return $property.Value
+    }
+
+    return $DefaultValue
+}
+
+function Test-ObjectPropertyExists {
+    param(
+        [AllowNull()]$Object,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+
+    if ($null -eq $Object) {
+        return $false
+    }
+    if ($Object -is [System.Collections.IDictionary]) {
+        return $Object.Contains($Name)
+    }
+    return $null -ne $Object.PSObject.Properties[$Name]
+}
+
+function Set-ObjectPropertyValue {
+    param(
+        [Parameter(Mandatory = $true)]$Object,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [AllowNull()]$Value
+    )
+
+    if ($Object -is [System.Collections.IDictionary]) {
+        $Object[$Name] = $Value
+        return
+    }
+
+    if (Test-ObjectPropertyExists -Object $Object -Name $Name) {
+        $Object.$Name = $Value
+    }
+    else {
+        $Object | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
+    }
+}
+
 function New-EmptyState {
     [pscustomobject][ordered]@{
-        version = 1
+        version = $script:StateSchemaVersion
         launcherVersion = $script:LauncherVersion
+        settings = [pscustomobject][ordered]@{
+            sharedCodexHome = Get-DefaultSharedCodexHome
+        }
         profiles = @()
     }
+}
+
+function Get-SharedCodexHomeFromState {
+    param([AllowNull()]$State)
+
+    $settings = Get-ObjectPropertyValue -Object $State -Name "settings" -DefaultValue $null
+    $sharedCodexHome = Get-ObjectPropertyValue -Object $settings -Name "sharedCodexHome" -DefaultValue ""
+    if ($sharedCodexHome -and [string]$sharedCodexHome -and ([string]$sharedCodexHome).Trim()) {
+        return [System.IO.Path]::GetFullPath(([string]$sharedCodexHome).Trim())
+    }
+
+    return Get-DefaultSharedCodexHome
+}
+
+function Get-ProfileConfigPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Id,
+        [string]$SharedCodexHome
+    )
+
+    $safeId = ConvertTo-SafeProfileId $Id
+    $home = if ($SharedCodexHome -and $SharedCodexHome.Trim()) {
+        [System.IO.Path]::GetFullPath($SharedCodexHome.Trim())
+    }
+    else {
+        Get-SharedCodexHomeFromState -State $null
+    }
+    return (Join-Path $home "$safeId.config.toml")
+}
+
+function New-DefaultRuntimeConfig {
+    [pscustomobject][ordered]@{
+        approvalPolicy = "inherit"
+        sandboxMode = "inherit"
+        fullAuto = $false
+        goalMode = "inherit"
+        webSearch = "inherit"
+        remoteCompaction = $false
+        strictConfig = $false
+        bypassHookTrust = $false
+    }
+}
+
+function Get-ProfileRuntimeConfig {
+    param([Parameter(Mandatory = $true)]$Profile)
+
+    $defaults = New-DefaultRuntimeConfig
+    $runtime = Get-ObjectPropertyValue -Object $Profile -Name "runtime" -DefaultValue $null
+    if ($null -eq $runtime) {
+        return $defaults
+    }
+
+    foreach ($property in @($defaults.PSObject.Properties)) {
+        $propertyName = $property.Name
+        $value = Get-ObjectPropertyValue -Object $runtime -Name $propertyName -DefaultValue (Get-ObjectPropertyValue -Object $defaults -Name $propertyName)
+        Set-ObjectPropertyValue -Object $defaults -Name $propertyName -Value $value
+    }
+    return $defaults
+}
+
+function Set-ProfileRuntimeDefaults {
+    param([Parameter(Mandatory = $true)]$Profile)
+
+    $runtime = Get-ProfileRuntimeConfig -Profile $Profile
+    Set-ObjectPropertyValue -Object $Profile -Name "runtime" -Value $runtime
+    return $runtime
+}
+
+function Test-RuntimeValue {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [AllowNull()][string]$Value,
+        [Parameter(Mandatory = $true)][string[]]$Allowed
+    )
+
+    if ($null -eq $Value -or -not $Value.Trim()) {
+        return
+    }
+
+    if ($Allowed -notcontains $Value) {
+        throw "$Name 必须是以下值之一: $($Allowed -join ', ')。"
+    }
+}
+
+function ConvertTo-BooleanValue {
+    param(
+        [AllowNull()]$Value,
+        [bool]$DefaultValue = $false
+    )
+
+    if ($null -eq $Value) {
+        return $DefaultValue
+    }
+    if ($Value -is [bool]) {
+        return [bool]$Value
+    }
+    $text = ([string]$Value).Trim()
+    if (-not $text) {
+        return $DefaultValue
+    }
+    return [System.Convert]::ToBoolean($text)
+}
+
+function Normalize-State {
+    param(
+        [Parameter(Mandatory = $true)]$State,
+        [switch]$PersistMigration
+    )
+
+    $statePath = Get-StatePath
+    $oldVersion = Get-ObjectPropertyValue -Object $State -Name "version" -DefaultValue 1
+    $needsMigration = ([int]$oldVersion -lt $script:StateSchemaVersion) -or
+        (-not (Get-ObjectPropertyValue -Object $State -Name "settings" -DefaultValue $null))
+
+    if ($needsMigration -and $PersistMigration -and (Test-Path -LiteralPath $statePath)) {
+        $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        Copy-Item -LiteralPath $statePath -Destination "$statePath.bak-$timestamp" -Force
+    }
+
+    Set-ObjectPropertyValue -Object $State -Name "version" -Value $script:StateSchemaVersion
+    Set-ObjectPropertyValue -Object $State -Name "launcherVersion" -Value $script:LauncherVersion
+
+    $settings = Get-ObjectPropertyValue -Object $State -Name "settings" -DefaultValue $null
+    if ($null -eq $settings) {
+        $settings = [pscustomobject][ordered]@{}
+        Set-ObjectPropertyValue -Object $State -Name "settings" -Value $settings
+    }
+
+    $sharedCodexHome = Get-SharedCodexHomeFromState -State $State
+    Set-ObjectPropertyValue -Object $settings -Name "sharedCodexHome" -Value $sharedCodexHome
+
+    if (-not (Get-ObjectPropertyValue -Object $State -Name "profiles" -DefaultValue $null)) {
+        Set-ObjectPropertyValue -Object $State -Name "profiles" -Value @()
+    }
+
+    foreach ($profile in @($State.profiles)) {
+        $id = [string](Get-ObjectPropertyValue -Object $profile -Name "id" -DefaultValue "")
+        if (-not $id.Trim()) {
+            continue
+        }
+
+        $safeId = ConvertTo-SafeProfileId $id
+        Set-ObjectPropertyValue -Object $profile -Name "id" -Value $safeId
+
+        $name = [string](Get-ObjectPropertyValue -Object $profile -Name "name" -DefaultValue $safeId)
+        Set-ObjectPropertyValue -Object $profile -Name "name" -Value $name
+        Set-ObjectPropertyValue -Object $profile -Name "providerName" -Value ([string](Get-ObjectPropertyValue -Object $profile -Name "providerName" -DefaultValue $name))
+        Set-ObjectPropertyValue -Object $profile -Name "providerId" -Value (ConvertTo-ProviderId -Id $safeId)
+        Set-ObjectPropertyValue -Object $profile -Name "envKeyName" -Value (ConvertTo-EnvKeyName -Id $safeId)
+
+        $paths = Get-ObjectPropertyValue -Object $profile -Name "paths" -DefaultValue $null
+        if ($null -eq $paths) {
+            $paths = [pscustomobject][ordered]@{}
+            Set-ObjectPropertyValue -Object $profile -Name "paths" -Value $paths
+        }
+
+        $oldCodexHome = [string](Get-ObjectPropertyValue -Object $paths -Name "codexHome" -DefaultValue "")
+        $legacyCodexHome = [string](Get-ObjectPropertyValue -Object $profile -Name "legacyCodexHome" -DefaultValue "")
+        if (-not $legacyCodexHome -and $oldCodexHome) {
+            $oldFull = [System.IO.Path]::GetFullPath($oldCodexHome)
+            $sharedFull = [System.IO.Path]::GetFullPath($sharedCodexHome)
+            if (-not [string]::Equals($oldFull, $sharedFull, [StringComparison]::OrdinalIgnoreCase) -and
+                (Test-Path -LiteralPath $oldFull -PathType Container)) {
+                $legacyCodexHome = $oldFull
+            }
+        }
+
+        Set-ObjectPropertyValue -Object $profile -Name "legacyCodexHome" -Value $legacyCodexHome
+        Set-ObjectPropertyValue -Object $paths -Name "profileHome" -Value (Get-ProfileHome -Id $safeId)
+        Set-ObjectPropertyValue -Object $paths -Name "codexHome" -Value $sharedCodexHome
+        Set-ObjectPropertyValue -Object $paths -Name "profileConfigPath" -Value (Get-ProfileConfigPath -Id $safeId -SharedCodexHome $sharedCodexHome)
+        Set-ObjectPropertyValue -Object $paths -Name "launcherPath" -Value (Join-Path (Get-LaunchersDir) "$safeId.ps1")
+
+        $desktop = Get-ObjectPropertyValue -Object $profile -Name "desktop" -DefaultValue $null
+        if ($null -eq $desktop) {
+            $desktop = [pscustomobject][ordered]@{}
+            Set-ObjectPropertyValue -Object $profile -Name "desktop" -Value $desktop
+        }
+        Set-ObjectPropertyValue -Object $desktop -Name "reserved" -Value $true
+        Set-ObjectPropertyValue -Object $desktop -Name "userDataDir" -Value (Join-Path (Get-ProfileHome -Id $safeId) "desktop-user-data")
+
+        Set-ProfileRuntimeDefaults -Profile $profile | Out-Null
+    }
+
+    if ($needsMigration -and $PersistMigration) {
+        Ensure-Directory $sharedCodexHome
+        foreach ($profile in @($State.profiles)) {
+            Write-ProfileConfig -Profile $profile
+            Write-ProfileLauncher -Profile $profile
+        }
+        Write-State -State $State
+    }
+
+    return $State
 }
 
 function Read-State {
     $statePath = Get-StatePath
     $state = Read-JsonFile -Path $statePath -DefaultValue (New-EmptyState)
-    if (-not ($state.PSObject.Properties.Name -contains "profiles") -or $null -eq $state.profiles) {
-        $state | Add-Member -NotePropertyName profiles -NotePropertyValue @() -Force
-    }
-    return $state
+    return (Normalize-State -State $state -PersistMigration)
 }
 
 function Write-State {
     param([Parameter(Mandatory = $true)]$State)
-    if (-not ($State.PSObject.Properties.Name -contains "launcherVersion")) {
-        $State | Add-Member -NotePropertyName launcherVersion -NotePropertyValue $script:LauncherVersion -Force
-    }
-    else {
-        $State.launcherVersion = $script:LauncherVersion
-    }
+    Normalize-State -State $State | Out-Null
     $json = $State | ConvertTo-Json -Depth 12
     Write-Utf8File -Path (Get-StatePath) -Content ($json + [Environment]::NewLine)
 }
@@ -158,7 +413,7 @@ function Get-ProfileHome {
 
 function Get-ProfileCodexHome {
     param([Parameter(Mandatory = $true)][string]$Id)
-    Join-Path (Get-ProfileHome -Id $Id) "codex-home"
+    Get-SharedCodexHomeFromState -State (Read-State)
 }
 
 function Resolve-CodexHomePath {
@@ -171,7 +426,55 @@ function Resolve-CodexHomePath {
         return [System.IO.Path]::GetFullPath($CodexHome.Trim())
     }
 
-    return Get-ProfileCodexHome -Id $Id
+    return Join-Path (Get-ProfileHome -Id $Id) "codex-home"
+}
+
+function Get-CodexApiProfileConfigPath {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Id)
+
+    $state = Read-State
+    return (Get-ProfileConfigPath -Id $Id -SharedCodexHome (Get-SharedCodexHomeFromState -State $state))
+}
+
+function Get-CodexApiLauncherSettings {
+    [CmdletBinding()]
+    param()
+
+    $state = Read-State
+    $sharedCodexHome = Get-SharedCodexHomeFromState -State $state
+    [pscustomobject]@{
+        Version = $state.version
+        LauncherVersion = $state.launcherVersion
+        Root = Get-CodexApiLauncherRoot
+        SharedCodexHome = $sharedCodexHome
+        ProfilesPath = Get-StatePath
+        SecretsDir = Get-SecretsDir
+        LaunchersDir = Get-LaunchersDir
+    }
+}
+
+function Set-CodexApiLauncherSharedHome {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$SharedCodexHome)
+
+    if (-not $SharedCodexHome.Trim()) {
+        throw "共享 CODEX_HOME 不能为空。"
+    }
+
+    $state = Read-State
+    $home = [System.IO.Path]::GetFullPath($SharedCodexHome.Trim())
+    Set-ObjectPropertyValue -Object $state.settings -Name "sharedCodexHome" -Value $home
+    Ensure-Directory $home
+    foreach ($profile in @($state.profiles)) {
+        Set-ObjectPropertyValue -Object $profile.paths -Name "codexHome" -Value $home
+        Set-ObjectPropertyValue -Object $profile.paths -Name "profileConfigPath" -Value (Get-ProfileConfigPath -Id $profile.id -SharedCodexHome $home)
+        Write-ProfileConfig -Profile $profile
+        Write-ProfileLauncher -Profile $profile
+    }
+    Write-State -State $state
+
+    Get-CodexApiLauncherSettings
 }
 
 function Get-ProfileById {
@@ -245,13 +548,21 @@ function Read-ProfileApiKey {
 function Get-ConfigText {
     param([Parameter(Mandatory = $true)]$Profile)
 
+    $runtime = Get-ProfileRuntimeConfig -Profile $Profile
+    $providerName = if (ConvertTo-BooleanValue (Get-ObjectPropertyValue -Object $runtime -Name "remoteCompaction" -DefaultValue $false)) {
+        "OpenAI"
+    }
+    else {
+        [string]$Profile.providerName
+    }
+
     $lines = @(
         "model_provider = $(ConvertTo-TomlString $Profile.providerId)"
         "model = $(ConvertTo-TomlString $Profile.model)"
         "model_reasoning_effort = $(ConvertTo-TomlString $Profile.reasoningEffort)"
         ""
         "[model_providers.$($Profile.providerId)]"
-        "name = $(ConvertTo-TomlString $Profile.providerName)"
+        "name = $(ConvertTo-TomlString $providerName)"
         "base_url = $(ConvertTo-TomlString $Profile.baseUrl)"
         "env_key = $(ConvertTo-TomlString $Profile.envKeyName)"
         "temp_env_key = $(ConvertTo-TomlString $Profile.envKeyName)"
@@ -265,8 +576,98 @@ function Get-ConfigText {
 function Write-ProfileConfig {
     param([Parameter(Mandatory = $true)]$Profile)
 
-    Ensure-Directory $Profile.paths.codexHome
-    Write-Utf8File -Path (Join-Path $Profile.paths.codexHome "config.toml") -Content (Get-ConfigText -Profile $Profile)
+    $sharedCodexHome = [string]$Profile.paths.codexHome
+    if (-not $sharedCodexHome.Trim()) {
+        $sharedCodexHome = Get-SharedCodexHomeFromState -State (Read-State)
+    }
+    Ensure-Directory $sharedCodexHome
+    $configPath = Get-ProfileConfigPath -Id $Profile.id -SharedCodexHome $sharedCodexHome
+    Set-ObjectPropertyValue -Object $Profile.paths -Name "profileConfigPath" -Value $configPath
+    Write-Utf8File -Path $configPath -Content (Get-ConfigText -Profile $Profile)
+}
+
+function Get-CodexRuntimeArgs {
+    param([Parameter(Mandatory = $true)]$Profile)
+
+    $runtime = Get-ProfileRuntimeConfig -Profile $Profile
+    $args = @()
+
+    if (ConvertTo-BooleanValue (Get-ObjectPropertyValue -Object $runtime -Name "fullAuto" -DefaultValue $false)) {
+        $args += "--dangerously-bypass-approvals-and-sandbox"
+    }
+    else {
+        $approvalPolicy = [string](Get-ObjectPropertyValue -Object $runtime -Name "approvalPolicy" -DefaultValue "inherit")
+        if ($approvalPolicy -and $approvalPolicy -ne "inherit") {
+            $args += @("--ask-for-approval", $approvalPolicy)
+        }
+
+        $sandboxMode = [string](Get-ObjectPropertyValue -Object $runtime -Name "sandboxMode" -DefaultValue "inherit")
+        if ($sandboxMode -and $sandboxMode -ne "inherit") {
+            $args += @("--sandbox", $sandboxMode)
+        }
+    }
+
+    $goalMode = [string](Get-ObjectPropertyValue -Object $runtime -Name "goalMode" -DefaultValue "inherit")
+    if ($goalMode -eq "enabled") {
+        $args += @("--enable", "goals")
+    }
+    elseif ($goalMode -eq "disabled") {
+        $args += @("--disable", "goals")
+    }
+
+    $webSearch = [string](Get-ObjectPropertyValue -Object $runtime -Name "webSearch" -DefaultValue "inherit")
+    if ($webSearch -eq "enabled") {
+        $args += "--search"
+    }
+    elseif ($webSearch -eq "disabled") {
+        $args += @("-c", 'web_search="disabled"')
+    }
+
+    if (ConvertTo-BooleanValue (Get-ObjectPropertyValue -Object $runtime -Name "strictConfig" -DefaultValue $false)) {
+        $args += "--strict-config"
+    }
+
+    if (ConvertTo-BooleanValue (Get-ObjectPropertyValue -Object $runtime -Name "bypassHookTrust" -DefaultValue $false)) {
+        $args += "--dangerously-bypass-hook-trust"
+    }
+
+    return $args
+}
+
+function ConvertTo-CodexApiProfileInfo {
+    param([Parameter(Mandatory = $true)]$Profile)
+
+    $runtime = Get-ProfileRuntimeConfig -Profile $Profile
+    $sharedCodexHome = [string]$Profile.paths.codexHome
+    if (-not $sharedCodexHome.Trim()) {
+        $sharedCodexHome = Get-SharedCodexHomeFromState -State (Read-State)
+    }
+    $configPath = Get-ProfileConfigPath -Id $Profile.id -SharedCodexHome $sharedCodexHome
+
+    [pscustomobject]@{
+        Id = $Profile.id
+        Name = $Profile.name
+        BaseUrl = $Profile.baseUrl
+        Model = $Profile.model
+        ReasoningEffort = $Profile.reasoningEffort
+        EnvKeyName = $Profile.envKeyName
+        Workspace = $Profile.workspace
+        CodexHome = $sharedCodexHome
+        SharedCodexHome = $sharedCodexHome
+        LegacyCodexHome = (Get-ObjectPropertyValue -Object $Profile -Name "legacyCodexHome" -DefaultValue "")
+        ProfileConfigPath = $configPath
+        ConfigPath = $configPath
+        LauncherPath = $Profile.paths.launcherPath
+        ApprovalPolicy = $runtime.approvalPolicy
+        SandboxMode = $runtime.sandboxMode
+        FullAuto = [bool](ConvertTo-BooleanValue $runtime.fullAuto)
+        GoalMode = $runtime.goalMode
+        WebSearch = $runtime.webSearch
+        RemoteCompaction = [bool](ConvertTo-BooleanValue $runtime.remoteCompaction)
+        StrictConfig = [bool](ConvertTo-BooleanValue $runtime.strictConfig)
+        BypassHookTrust = [bool](ConvertTo-BooleanValue $runtime.bypassHookTrust)
+        HasApiKey = [bool](Test-Path -LiteralPath (Get-ProfileSecretPath -Id $Profile.id))
+    }
 }
 
 function Get-NormalizedDirectoryPath {
@@ -359,6 +760,14 @@ function New-CodexApiProfile {
         [string]$Workspace = "",
         [string]$CodexHome = "",
         [ValidateSet("low", "medium", "high", "xhigh", "max", "ultra")][string]$ReasoningEffort = "medium",
+        [ValidateSet("inherit", "untrusted", "on-request", "never")][string]$ApprovalPolicy = "inherit",
+        [ValidateSet("inherit", "read-only", "workspace-write", "danger-full-access")][string]$SandboxMode = "inherit",
+        [bool]$FullAuto = $false,
+        [ValidateSet("inherit", "enabled", "disabled")][string]$GoalMode = "inherit",
+        [ValidateSet("inherit", "enabled", "disabled")][string]$WebSearch = "inherit",
+        [bool]$RemoteCompaction = $false,
+        [bool]$StrictConfig = $false,
+        [bool]$BypassHookTrust = $false,
         [securestring]$ApiKey,
         [switch]$Force
     )
@@ -372,12 +781,21 @@ function New-CodexApiProfile {
     }
 
     $now = (Get-Date).ToUniversalTime().ToString("o")
-    $codexHome = Resolve-CodexHomePath -Id $safeId -CodexHome $CodexHome
+    $sharedCodexHome = Get-SharedCodexHomeFromState -State $state
+    $legacyCodexHome = if ($CodexHome -and $CodexHome.Trim()) {
+        [System.IO.Path]::GetFullPath($CodexHome.Trim())
+    }
+    elseif ($existing) {
+        [string](Get-ObjectPropertyValue -Object $existing -Name "legacyCodexHome" -DefaultValue "")
+    }
+    else {
+        ""
+    }
     $launcherPath = Join-Path (Get-LaunchersDir) "$safeId.ps1"
     $providerId = ConvertTo-ProviderId -Id $safeId
     $envKeyName = ConvertTo-EnvKeyName -Id $safeId
 
-    $profile = [ordered]@{
+    $profile = [pscustomobject][ordered]@{
         id = $safeId
         name = $Name
         providerName = $Name
@@ -387,14 +805,26 @@ function New-CodexApiProfile {
         reasoningEffort = $ReasoningEffort
         envKeyName = $envKeyName
         workspace = if ($Workspace) { [System.IO.Path]::GetFullPath($Workspace) } else { $null }
-        createdAt = if ($existing -and $existing.createdAt) { $existing.createdAt } else { $now }
+        legacyCodexHome = $legacyCodexHome
+        createdAt = if ($existing) { (Get-ObjectPropertyValue -Object $existing -Name "createdAt" -DefaultValue $now) } else { $now }
         updatedAt = $now
-        paths = [ordered]@{
+        runtime = [pscustomobject][ordered]@{
+            approvalPolicy = $ApprovalPolicy
+            sandboxMode = $SandboxMode
+            fullAuto = $FullAuto
+            goalMode = $GoalMode
+            webSearch = $WebSearch
+            remoteCompaction = $RemoteCompaction
+            strictConfig = $StrictConfig
+            bypassHookTrust = $BypassHookTrust
+        }
+        paths = [pscustomobject][ordered]@{
             profileHome = Get-ProfileHome -Id $safeId
-            codexHome = $codexHome
+            codexHome = $sharedCodexHome
+            profileConfigPath = Get-ProfileConfigPath -Id $safeId -SharedCodexHome $sharedCodexHome
             launcherPath = $launcherPath
         }
-        desktop = [ordered]@{
+        desktop = [pscustomobject][ordered]@{
             reserved = $true
             userDataDir = (Join-Path (Get-ProfileHome -Id $safeId) "desktop-user-data")
         }
@@ -418,17 +848,7 @@ function New-CodexApiProfile {
         Save-ProfileSecret -Profile $profile -ApiKey $ApiKey
     }
 
-    [pscustomobject]@{
-        Id = $profile.id
-        Name = $profile.name
-        BaseUrl = $profile.baseUrl
-        Model = $profile.model
-        EnvKeyName = $profile.envKeyName
-        CodexHome = $profile.paths.codexHome
-        ConfigPath = (Join-Path $profile.paths.codexHome "config.toml")
-        LauncherPath = $profile.paths.launcherPath
-        HasApiKey = [bool](Test-Path -LiteralPath (Get-ProfileSecretPath -Id $profile.id))
-    }
+    ConvertTo-CodexApiProfileInfo -Profile $profile
 }
 
 function Set-CodexApiProfileApiKey {
@@ -515,12 +935,7 @@ function Set-CodexApiProfileName {
     Write-ProfileConfig -Profile $profile
     Write-ProfileLauncher -Profile $profile
 
-    [pscustomobject]@{
-        Id = $profile.id
-        Name = $profile.name
-        ConfigPath = (Join-Path $profile.paths.codexHome "config.toml")
-        LauncherPath = $profile.paths.launcherPath
-    }
+    ConvertTo-CodexApiProfileInfo -Profile $profile
 }
 
 function Set-CodexApiProfileCodexHome {
@@ -540,21 +955,15 @@ function Set-CodexApiProfileCodexHome {
         throw "没有找到 Profile '$Id'。"
     }
 
-    $oldCodexHome = [string]$profile.paths.codexHome
     $newCodexHome = [System.IO.Path]::GetFullPath($CodexHome.Trim())
-    Move-DirectoryToDestination -Source $oldCodexHome -Destination $newCodexHome
-    $profile.paths.codexHome = $newCodexHome
+    Set-ObjectPropertyValue -Object $profile -Name "legacyCodexHome" -Value $newCodexHome
     $profile.updatedAt = (Get-Date).ToUniversalTime().ToString("o")
     Write-State -State $state
     Write-ProfileConfig -Profile $profile
     Write-ProfileLauncher -Profile $profile
 
-    [pscustomobject]@{
-        Id = $profile.id
-        CodexHome = $profile.paths.codexHome
-        ConfigPath = (Join-Path $profile.paths.codexHome "config.toml")
-        LauncherPath = $profile.paths.launcherPath
-    }
+    Write-Warning "Set-CodexApiProfileCodexHome 现在只记录 legacyCodexHome；实际启动统一使用共享 CODEX_HOME。请使用 Set-CodexApiLauncherSharedHome 修改共享目录。"
+    ConvertTo-CodexApiProfileInfo -Profile $profile
 }
 
 function Set-CodexApiProfile {
@@ -567,7 +976,15 @@ function Set-CodexApiProfile {
         [string]$Model,
         [AllowEmptyString()][string]$Workspace,
         [string]$CodexHome,
-        [ValidateSet("low", "medium", "high", "xhigh", "max", "ultra")][string]$ReasoningEffort
+        [ValidateSet("low", "medium", "high", "xhigh", "max", "ultra")][string]$ReasoningEffort,
+        [ValidateSet("inherit", "untrusted", "on-request", "never")][string]$ApprovalPolicy,
+        [ValidateSet("inherit", "read-only", "workspace-write", "danger-full-access")][string]$SandboxMode,
+        [bool]$FullAuto,
+        [ValidateSet("inherit", "enabled", "disabled")][string]$GoalMode,
+        [ValidateSet("inherit", "enabled", "disabled")][string]$WebSearch,
+        [bool]$RemoteCompaction,
+        [bool]$StrictConfig,
+        [bool]$BypassHookTrust
     )
 
     $state = Read-State
@@ -617,6 +1034,32 @@ function Set-CodexApiProfile {
         $profile.reasoningEffort = $ReasoningEffort
     }
 
+    $runtime = Set-ProfileRuntimeDefaults -Profile $profile
+    if ($PSBoundParameters.ContainsKey("ApprovalPolicy")) {
+        $runtime.approvalPolicy = $ApprovalPolicy
+    }
+    if ($PSBoundParameters.ContainsKey("SandboxMode")) {
+        $runtime.sandboxMode = $SandboxMode
+    }
+    if ($PSBoundParameters.ContainsKey("FullAuto")) {
+        $runtime.fullAuto = $FullAuto
+    }
+    if ($PSBoundParameters.ContainsKey("GoalMode")) {
+        $runtime.goalMode = $GoalMode
+    }
+    if ($PSBoundParameters.ContainsKey("WebSearch")) {
+        $runtime.webSearch = $WebSearch
+    }
+    if ($PSBoundParameters.ContainsKey("RemoteCompaction")) {
+        $runtime.remoteCompaction = $RemoteCompaction
+    }
+    if ($PSBoundParameters.ContainsKey("StrictConfig")) {
+        $runtime.strictConfig = $StrictConfig
+    }
+    if ($PSBoundParameters.ContainsKey("BypassHookTrust")) {
+        $runtime.bypassHookTrust = $BypassHookTrust
+    }
+
     if ($PSBoundParameters.ContainsKey("Workspace")) {
         if ($Workspace -and $Workspace.Trim()) {
             if (-not (Test-Path -LiteralPath $Workspace -PathType Container)) {
@@ -629,42 +1072,31 @@ function Set-CodexApiProfile {
         }
     }
 
-    $requestedCodexHome = $null
     if ($PSBoundParameters.ContainsKey("CodexHome")) {
         if (-not $CodexHome.Trim()) {
             throw "配置存放目录不能为空。"
         }
-        $requestedCodexHome = [System.IO.Path]::GetFullPath($CodexHome.Trim())
+        Set-ObjectPropertyValue -Object $profile -Name "legacyCodexHome" -Value ([System.IO.Path]::GetFullPath($CodexHome.Trim()))
     }
 
     $oldProfileHome = [string]$profile.paths.profileHome
-    $oldCodexHome = [string]$profile.paths.codexHome
     $oldLauncherPath = [string]$profile.paths.launcherPath
     $idChanged = -not [string]::Equals($oldId, $targetId, [StringComparison]::OrdinalIgnoreCase)
+    $sharedCodexHome = Get-SharedCodexHomeFromState -State $state
+    $oldConfigPath = Get-ProfileConfigPath -Id $oldId -SharedCodexHome $sharedCodexHome
 
     $targetProfileHome = Get-ProfileHome -Id $targetId
-    $targetCodexHome = if ($requestedCodexHome) { $requestedCodexHome } else { $oldCodexHome }
-    if ($idChanged) {
-        $oldProfileHomeNormalized = Get-NormalizedDirectoryPath $oldProfileHome
-        $targetCodexHomeNormalized = Get-NormalizedDirectoryPath $targetCodexHome
-        if ([string]::Equals($targetCodexHomeNormalized, $oldProfileHomeNormalized, [StringComparison]::OrdinalIgnoreCase)) {
-            $targetCodexHome = $targetProfileHome
-        }
-        elseif ($targetCodexHomeNormalized.StartsWith($oldProfileHomeNormalized + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
-            $targetCodexHomeNormalized.StartsWith($oldProfileHomeNormalized + [System.IO.Path]::AltDirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-            $relativeCodexHome = [System.IO.Path]::GetRelativePath($oldProfileHomeNormalized, $targetCodexHomeNormalized)
-            $targetCodexHome = Join-Path $targetProfileHome $relativeCodexHome
-        }
-    }
 
     if ($idChanged) {
         $profile.id = $targetId
         $profile.providerId = ConvertTo-ProviderId -Id $targetId
         $profile.envKeyName = ConvertTo-EnvKeyName -Id $targetId
         $profile.paths.profileHome = $targetProfileHome
+        $profile.paths.codexHome = $sharedCodexHome
+        Set-ObjectPropertyValue -Object $profile.paths -Name "profileConfigPath" -Value (Get-ProfileConfigPath -Id $targetId -SharedCodexHome $sharedCodexHome)
         $profile.paths.launcherPath = Join-Path (Get-LaunchersDir) "$targetId.ps1"
 
-        if ($profile.PSObject.Properties.Name -contains "desktop" -and $null -ne $profile.desktop) {
+        if (Test-ObjectPropertyExists -Object $profile -Name "desktop" -and $null -ne $profile.desktop) {
             $profile.desktop.userDataDir = Join-Path (Get-ProfileHome -Id $targetId) "desktop-user-data"
         }
 
@@ -688,10 +1120,8 @@ function Set-CodexApiProfile {
         }
     }
 
-    if (-not [string]::Equals((Get-NormalizedDirectoryPath $oldCodexHome), (Get-NormalizedDirectoryPath $targetCodexHome), [StringComparison]::OrdinalIgnoreCase)) {
-        Move-DirectoryToDestination -Source $oldCodexHome -Destination $targetCodexHome
-    }
-    $profile.paths.codexHome = $targetCodexHome
+    $profile.paths.codexHome = $sharedCodexHome
+    Set-ObjectPropertyValue -Object $profile.paths -Name "profileConfigPath" -Value (Get-ProfileConfigPath -Id $profile.id -SharedCodexHome $sharedCodexHome)
 
     if ($idChanged -and $oldProfileHome -and (Test-Path -LiteralPath $oldProfileHome -PathType Container)) {
         Move-DirectoryToDestination -Source $oldProfileHome -Destination $profile.paths.profileHome
@@ -704,6 +1134,9 @@ function Set-CodexApiProfile {
 
     if ($idChanged -and $oldLauncherPath -and (Test-Path -LiteralPath $oldLauncherPath) -and -not [string]::Equals($oldLauncherPath, $profile.paths.launcherPath, [StringComparison]::OrdinalIgnoreCase)) {
         Remove-Item -LiteralPath $oldLauncherPath -Force
+    }
+    if ($idChanged -and $oldConfigPath -and (Test-Path -LiteralPath $oldConfigPath) -and -not [string]::Equals($oldConfigPath, $profile.paths.profileConfigPath, [StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $oldConfigPath -Force
     }
 
     $profiles = @()
@@ -719,18 +1152,7 @@ function Set-CodexApiProfile {
     $state.profiles = @($profiles | Sort-Object id)
     Write-State -State $state
 
-    [pscustomobject]@{
-        Id = $profile.id
-        Name = $profile.name
-        BaseUrl = $profile.baseUrl
-        Model = $profile.model
-        EnvKeyName = $profile.envKeyName
-        CodexHome = $profile.paths.codexHome
-        Workspace = $profile.workspace
-        ConfigPath = (Join-Path $profile.paths.codexHome "config.toml")
-        LauncherPath = $profile.paths.launcherPath
-        HasApiKey = [bool](Test-Path -LiteralPath (Get-ProfileSecretPath -Id $profile.id))
-    }
+    ConvertTo-CodexApiProfileInfo -Profile $profile
 }
 
 function Get-CodexApiProfile {
@@ -751,22 +1173,123 @@ function Get-CodexApiProfiles {
 
     $state = Read-State
     foreach ($profile in @($state.profiles)) {
-        [pscustomobject]@{
-            Id = $profile.id
-            Name = $profile.name
-            BaseUrl = $profile.baseUrl
-            Model = $profile.model
-            ReasoningEffort = $profile.reasoningEffort
-            EnvKeyName = $profile.envKeyName
-            Workspace = $profile.workspace
-            CodexHome = $profile.paths.codexHome
-            LauncherPath = $profile.paths.launcherPath
-            HasApiKey = [bool](Test-Path -LiteralPath (Get-ProfileSecretPath -Id $profile.id))
-        }
+        ConvertTo-CodexApiProfileInfo -Profile $profile
     }
 }
 
 Set-Alias -Name List-CodexApiProfiles -Value Get-CodexApiProfiles
+
+function Set-CodexApiProfileRuntime {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Id,
+        [ValidateSet("inherit", "untrusted", "on-request", "never")][string]$ApprovalPolicy,
+        [ValidateSet("inherit", "read-only", "workspace-write", "danger-full-access")][string]$SandboxMode,
+        [bool]$FullAuto,
+        [ValidateSet("inherit", "enabled", "disabled")][string]$GoalMode,
+        [ValidateSet("inherit", "enabled", "disabled")][string]$WebSearch,
+        [bool]$RemoteCompaction,
+        [bool]$StrictConfig,
+        [bool]$BypassHookTrust
+    )
+
+    $state = Read-State
+    $profile = Get-ProfileById -State $state -Id $Id
+    if (-not $profile) {
+        throw "没有找到 Profile '$Id'。"
+    }
+
+    $runtime = Set-ProfileRuntimeDefaults -Profile $profile
+    if ($PSBoundParameters.ContainsKey("ApprovalPolicy")) {
+        $runtime.approvalPolicy = $ApprovalPolicy
+    }
+    if ($PSBoundParameters.ContainsKey("SandboxMode")) {
+        $runtime.sandboxMode = $SandboxMode
+    }
+    if ($PSBoundParameters.ContainsKey("FullAuto")) {
+        $runtime.fullAuto = $FullAuto
+    }
+    if ($PSBoundParameters.ContainsKey("GoalMode")) {
+        $runtime.goalMode = $GoalMode
+    }
+    if ($PSBoundParameters.ContainsKey("WebSearch")) {
+        $runtime.webSearch = $WebSearch
+    }
+    if ($PSBoundParameters.ContainsKey("RemoteCompaction")) {
+        $runtime.remoteCompaction = $RemoteCompaction
+    }
+    if ($PSBoundParameters.ContainsKey("StrictConfig")) {
+        $runtime.strictConfig = $StrictConfig
+    }
+    if ($PSBoundParameters.ContainsKey("BypassHookTrust")) {
+        $runtime.bypassHookTrust = $BypassHookTrust
+    }
+
+    $profile.updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+    Write-State -State $state
+    Write-ProfileConfig -Profile $profile
+    Write-ProfileLauncher -Profile $profile
+    ConvertTo-CodexApiProfileInfo -Profile $profile
+}
+
+function Invoke-CodexApiLauncherMigration {
+    [CmdletBinding()]
+    param([switch]$DryRun)
+
+    $statePath = Get-StatePath
+    $before = Read-JsonFile -Path $statePath -DefaultValue (New-EmptyState)
+    $beforeVersion = Get-ObjectPropertyValue -Object $before -Name "version" -DefaultValue 1
+    $profileCount = @((Get-ObjectPropertyValue -Object $before -Name "profiles" -DefaultValue @())).Count
+    $state = Normalize-State -State $before
+    $sharedCodexHome = Get-SharedCodexHomeFromState -State $state
+
+    $legacyHomes = @()
+    foreach ($profile in @($state.profiles)) {
+        $legacy = [string](Get-ObjectPropertyValue -Object $profile -Name "legacyCodexHome" -DefaultValue "")
+        if ($legacy) {
+            $legacyHomes += $legacy
+        }
+    }
+
+    if (-not $DryRun) {
+        Ensure-Directory $sharedCodexHome
+        foreach ($profile in @($state.profiles)) {
+            Write-ProfileConfig -Profile $profile
+            Write-ProfileLauncher -Profile $profile
+        }
+        Write-State -State $state
+    }
+
+    [pscustomobject]@{
+        DryRun = [bool]$DryRun
+        WasVersion = $beforeVersion
+        Version = $script:StateSchemaVersion
+        ProfileCount = $profileCount
+        SharedCodexHome = $sharedCodexHome
+        LegacyHomeCount = @($legacyHomes).Count
+        LegacyHomes = @($legacyHomes | Sort-Object -Unique)
+        StatePath = $statePath
+    }
+}
+
+function Get-CodexApiLegacyHomes {
+    [CmdletBinding()]
+    param()
+
+    $state = Read-State
+    foreach ($profile in @($state.profiles)) {
+        $legacy = [string](Get-ObjectPropertyValue -Object $profile -Name "legacyCodexHome" -DefaultValue "")
+        if ($legacy) {
+            [pscustomobject]@{
+                Id = $profile.id
+                Name = $profile.name
+                LegacyCodexHome = $legacy
+                Exists = [bool](Test-Path -LiteralPath $legacy -PathType Container)
+                SharedCodexHome = Get-SharedCodexHomeFromState -State $state
+            }
+        }
+    }
+}
 
 function Join-ProviderEndpoint {
     param(
@@ -843,12 +1366,12 @@ function Test-CodexApiProfile {
 
         try {
             $payload = $modelsResult.Body | ConvertFrom-Json
-            if ($payload.PSObject.Properties.Name -contains "data") {
-                $modelCount = @($payload.data).Count
-            }
-            elseif ($payload.PSObject.Properties.Name -contains "models") {
-                $modelCount = @($payload.models).Count
-            }
+        if (Test-ObjectPropertyExists -Object $payload -Name "data") {
+            $modelCount = @($payload.data).Count
+        }
+        elseif (Test-ObjectPropertyExists -Object $payload -Name "models") {
+            $modelCount = @($payload.models).Count
+        }
         }
         catch {
             $details.Add("无法将 /models 响应解析为 JSON。")
@@ -954,10 +1477,10 @@ function Get-CodexApiProfileModels {
 
     $payload = $modelsResult.Body | ConvertFrom-Json
     $items = @()
-    if ($payload.PSObject.Properties.Name -contains "data") {
+    if (Test-ObjectPropertyExists -Object $payload -Name "data") {
         $items = @($payload.data)
     }
-    elseif ($payload.PSObject.Properties.Name -contains "models") {
+    elseif (Test-ObjectPropertyExists -Object $payload -Name "models") {
         $items = @($payload.models)
     }
 
@@ -967,13 +1490,13 @@ function Get-CodexApiProfileModels {
         if ($item -is [string]) {
             $modelId = $item
         }
-        elseif ($item.PSObject.Properties.Name -contains "id") {
+        elseif (Test-ObjectPropertyExists -Object $item -Name "id") {
             $modelId = [string]$item.id
         }
-        elseif ($item.PSObject.Properties.Name -contains "model") {
+        elseif (Test-ObjectPropertyExists -Object $item -Name "model") {
             $modelId = [string]$item.model
         }
-        elseif ($item.PSObject.Properties.Name -contains "name") {
+        elseif (Test-ObjectPropertyExists -Object $item -Name "name") {
             $modelId = [string]$item.name
         }
 
@@ -1047,8 +1570,10 @@ function Invoke-CodexApiProfileInCurrentWindow {
     $oldCodexHome = $env:CODEX_HOME
     $oldApiKey = [Environment]::GetEnvironmentVariable($Profile.envKeyName, "Process")
     try {
-        Ensure-Directory $Profile.paths.codexHome
-        $env:CODEX_HOME = $Profile.paths.codexHome
+        $sharedCodexHome = [string]$Profile.paths.codexHome
+        Ensure-Directory $sharedCodexHome
+        Write-ProfileConfig -Profile $Profile
+        $env:CODEX_HOME = $sharedCodexHome
         [Environment]::SetEnvironmentVariable($Profile.envKeyName, $apiKey, "Process")
 
         $workspaceToUse = if ($Workspace) {
@@ -1060,7 +1585,8 @@ function Invoke-CodexApiProfileInCurrentWindow {
         else {
             (Get-Location).Path
         }
-        $args = @("-C", $workspaceToUse)
+        $args = @("--profile", [string]$Profile.id, "-C", $workspaceToUse)
+        $args += @(Get-CodexRuntimeArgs -Profile $Profile)
         if ($CodexArgs) {
             $args += $CodexArgs
         }
@@ -1130,6 +1656,8 @@ function Start-CodexApiProfile {
         Started = $true
         Shell = $shellDisplay
         CodexHome = $profile.paths.codexHome
+        SharedCodexHome = $profile.paths.codexHome
+        ProfileConfigPath = $profile.paths.profileConfigPath
         LauncherPath = $profile.paths.launcherPath
     }
 }
@@ -1158,6 +1686,15 @@ function Remove-CodexApiProfile {
         if ($DeleteFiles -and (Test-Path -LiteralPath $profile.paths.profileHome)) {
             Remove-Item -LiteralPath $profile.paths.profileHome -Recurse -Force
         }
+        if ($DeleteFiles) {
+            $configPath = Get-ProfileConfigPath -Id $profile.id -SharedCodexHome $profile.paths.codexHome
+            if (Test-Path -LiteralPath $configPath) {
+                Remove-Item -LiteralPath $configPath -Force
+            }
+            if ($profile.paths.launcherPath -and (Test-Path -LiteralPath $profile.paths.launcherPath)) {
+                Remove-Item -LiteralPath $profile.paths.launcherPath -Force
+            }
+        }
 
         [pscustomobject]@{
             Id = $profile.id
@@ -1169,6 +1706,12 @@ function Remove-CodexApiProfile {
 
 Export-ModuleMember -Function @(
     "Get-CodexApiLauncherRoot",
+    "Get-CodexApiLauncherSettings",
+    "Set-CodexApiLauncherSharedHome",
+    "Get-CodexApiProfileConfigPath",
+    "Set-CodexApiProfileRuntime",
+    "Invoke-CodexApiLauncherMigration",
+    "Get-CodexApiLegacyHomes",
     "New-CodexApiProfile",
     "Set-CodexApiProfileApiKey",
     "Set-CodexApiProfileWorkspace",

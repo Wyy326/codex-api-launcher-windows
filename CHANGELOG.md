@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0-local
+
+- 将运行架构改为一个共享 `CODEX_HOME` 加每个 profile 一个 `<id>.config.toml` overlay；启动时使用 `codex --profile <id>`。
+- API Key 继续只保存在 Windows protected secret 中，启动时临时注入进程环境变量，不写入 TOML 或脚本。
+- 新增 profile runtime 设置：审批级别、sandbox、全自动、目标模式、web search、remote compaction、strict config 和 hook trust。
+- 桌面端“配置”页升级为运行配置中心，支持保存运行参数、预览 overlay、打开共享 home/overlay。
+- 新增共享 home 设置、legacy home 检查和 v1 `profiles.json` 自动迁移备份。
+
 ## 0.3.5-local
 
 - 刷新配置改为轻量刷新，不再临时禁用整组按钮和输入框，避免点击刷新时界面被整体洗灰。

@@ -259,7 +259,7 @@ $profileList.BackColor = $script:Colors.Info
 $profileList.HorizontalScrollbar = $true
 $leftPanel.Controls.Add($profileList)
 
-$profileHint = New-Label -Text "每个配置都有独立的 API 凭据、CODEX_HOME、会话和日志。项目文件夹在启动时选择。" -X 16 -Y 362 -Width 254 -Height 54 -Color $script:Colors.Muted
+$profileHint = New-Label -Text "每个配置都有独立 API 凭据和 overlay；CODEX_HOME 由启动器共享。" -X 16 -Y 362 -Width 254 -Height 54 -Color $script:Colors.Muted
 $leftPanel.Controls.Add($profileHint)
 
 $openLaunchersButton = New-Button -Text "打开快捷启动脚本目录" -X 16 -Y 438 -Width 254 -Height 34
@@ -274,7 +274,7 @@ $rightPanel.Controls.Add($providerNameLabel)
 $providerMetaLabel = New-Label -Text "" -X 20 -Y 74 -Width 570 -Height 42 -Color $script:Colors.Muted
 $rightPanel.Controls.Add($providerMetaLabel)
 
-$homeButton = New-Button -Text "打开 CODEX_HOME" -X 438 -Y 42 -Width 154 -Height 32
+$homeButton = New-Button -Text "打开共享 HOME" -X 438 -Y 42 -Width 154 -Height 32
 $rightPanel.Controls.Add($homeButton)
 
 $separator1 = New-Object System.Windows.Forms.Label
@@ -508,7 +508,7 @@ $startButton.Add_Click({
             Set-CodexApiProfileWorkspace -Id $profile.Id -Workspace $workspace | Out-Null
         }
         $result = Start-CodexApiProfile -Id $profile.Id -Workspace $workspace
-        Set-Status "已在新的终端窗口启动 $($profile.Id)。`r`n项目: $workspace`r`nCODEX_HOME: $($result.CodexHome)"
+        Set-Status "已在新的终端窗口启动 $($profile.Id)。`r`n项目: $workspace`r`n共享 CODEX_HOME: $($result.CodexHome)"
     }
     catch {
         Set-Status $_.Exception.Message

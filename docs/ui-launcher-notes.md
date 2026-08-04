@@ -10,16 +10,16 @@ CodexCLI API 多开启动器是一个 Windows 桌面工具，用来把不同第�
 2. 选择项目文件夹。
 3. 启动新的 Codex CLI 终端。
 
-API/provider 配置、配置存放目录和项目文件夹选择必须清晰分离。一个 API 配置可以反复用于不同项目；项目文件夹只在启动时选择，必要时才保存为该配置的默认项目。配置存放目录就是该 profile 的 `CODEX_HOME`，可以和项目目录相同，也可以分开。
+API/provider 配置、共享 `CODEX_HOME` 和项目文件夹选择必须清晰分离。一个 API 配置可以反复用于不同项目；项目文件夹只在启动时选择，必要时才保存为该配置的默认项目。每个 profile 只拥有一个 `<id>.config.toml` overlay，启动时通过 `codex --profile <id>` 叠加到共享 home。
 
 ## 当前 UX 决策
 
 - UI 使用左右双栏：左侧是 API 配置列表，右侧是启动面板。
 - API 配置列表显示为“显示名称 | 模型 | 供应商 ID”，避免只看到 `welfare-0xpsyche` 这类内部 id 时难以区分。
-- 新增配置时必须能填写中转地址、模型、API Key、配置存放目录和项目目录。
-- 已有配置只在右侧“当前供应商”修改；左侧不再提供第二个编辑入口。
-- 右侧保存修改可以更新供应商 ID、显示名称、中转地址、模型、API Key 和配置目录。API Key 留空表示保留原密钥。
-- 修改供应商 ID 是重命名和迁移：旧供应商目录、密钥文件和快捷启动脚本应该消失或改名，不应该复制出第二份有效配置。
+- 新增配置时必须能填写中转地址、模型、API Key 和项目目录；legacy HOME 只作为旧目录记录。
+- 已有 provider 信息仍在右侧“当前供应商”修改；“配置”页承载运行参数和 overlay 预览。
+- 右侧保存修改可以更新供应商 ID、显示名称、中转地址、模型和 API Key。API Key 留空表示保留原密钥。
+- 修改供应商 ID 是重命名：密钥文件、快捷启动脚本和 overlay 应该跟随新 ID；旧 per-profile `CODEX_HOME` 不自动删除。
 - 日常入口优先使用 `CodexApiLauncher.exe`，PowerShell UI 脚本作为备用入口保留。
 - “启动 Codex”是主操作；未选择真实项目文件夹前保持禁用。
 - “CLI 检查”优先于原始 HTTP 检查，因为有些中转网关只接受 Codex CLI 的请求形态。
@@ -31,6 +31,6 @@ API/provider 配置、配置存放目录和项目文件夹选择必须清晰分�
 
 - API Key 不得写入文档、TOML、生成的启动脚本或截图。
 - API 配置状态存放在 `%LOCALAPPDATA%\CodexApiLauncher`。
-- 每个 profile 拥有自己的 `CODEX_HOME`。
-- 配置目录迁移应移动旧 `CODEX_HOME` 内容；如果目标目录已有同名项目，必须停止并提示用户。
+- 所有 profile 共用 `%LOCALAPPDATA%\CodexApiLauncher\codex-home`，每个 profile 一个 `<id>.config.toml`。
+- 旧 per-profile `CODEX_HOME` 只记录为 `LegacyCodexHome`，由设置页列出和检查，不自动删除。
 - 默认项目文件夹只是可选元数据；清除默认项目不得删除 API 配置或 Key。

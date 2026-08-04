@@ -86,6 +86,16 @@ internal sealed class LauncherForm : Form
     private TextBox providerBaseUrlBox = null!;
     private TextBox providerApiKeyBox = null!;
     private TextBox providerCodexHomeBox = null!;
+    private ComboBox approvalPolicyBox = null!;
+    private ComboBox sandboxModeBox = null!;
+    private ComboBox goalModeBox = null!;
+    private ComboBox webSearchBox = null!;
+    private CheckBox fullAutoCheck = null!;
+    private CheckBox remoteCompactionCheck = null!;
+    private CheckBox strictConfigCheck = null!;
+    private CheckBox bypassHookTrustCheck = null!;
+    private RichTextBox configPreviewText = null!;
+    private TextBox sharedHomeBox = null!;
     private Label savedProjectLabel = null!;
     private TextBox workspaceBox = null!;
     private CheckBox rememberCheck = null!;
@@ -232,7 +242,7 @@ internal sealed class LauncherForm : Form
         ResizeProfileColumns();
         leftPanel.Controls.Add(profileList);
 
-        var profileHint = NewLabel("每个配置都保持独立的凭据、CODEX_HOME、会话和日志。", 24, 534, 232, 52, 9, FontStyle.Regular, mutedColor);
+        var profileHint = NewLabel("每个配置保持独立 API 凭据和 overlay；CODEX_HOME 共享。", 24, 534, 232, 52, 9, FontStyle.Regular, mutedColor);
         profileHint.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
         leftPanel.Controls.Add(profileHint);
 
@@ -265,7 +275,7 @@ internal sealed class LauncherForm : Form
         providerApiKeyBox = AddEditableField(rightPanel, "API Key", 16, 194, 520);
         providerApiKeyBox.UseSystemPasswordChar = true;
         providerApiKeyBox.PlaceholderText = "留空则保留现有 API Key";
-        providerCodexHomeBox = AddCodexHomeField(rightPanel, "配置目录", 16, 228);
+        providerCodexHomeBox = AddCodexHomeField(rightPanel, "共享目录", 16, 228);
 
         var providerSeparator = NewSeparator(16, 274, 772);
         providerSeparator.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
@@ -410,26 +420,75 @@ internal sealed class LauncherForm : Form
         return box;
     }
 
+    private ComboBox AddRuntimeCombo(Control parent, string label, int x, int y, string[] items)
+    {
+        parent.Controls.Add(NewLabel(label, x, y + 4, 90, 24, 9, FontStyle.Bold, mutedColor));
+        var box = new ComboBox
+        {
+            Location = new Point(x + 98, y),
+            Size = new Size(180, 28),
+            Font = UiFont(9.5f),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            FlatStyle = FlatStyle.Flat
+        };
+        box.Items.AddRange(items.Cast<object>().ToArray());
+        if (box.Items.Count > 0)
+        {
+            box.SelectedIndex = 0;
+        }
+        parent.Controls.Add(box);
+        return box;
+    }
+
     private Panel BuildConfigPage()
     {
         var page = NewPanel(304, 96, 804, 780);
         page.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
         page.Visible = false;
         page.Controls.Add(NewLabel("配置", 16, 16, 180, 30, 14, FontStyle.Bold));
-        page.Controls.Add(NewLabel("这里集中处理本机配置文件、快捷启动脚本和当前供应商目录。", 16, 52, 760, 24, 9, FontStyle.Regular, mutedColor));
+        page.Controls.Add(NewLabel("当前页管理 Codex 启动参数、共享目录和每个供应商的 overlay 配置。", 16, 52, 760, 24, 9, FontStyle.Regular, mutedColor));
 
-        configSummaryLabel = NewLabel("", 16, 92, 772, 120, 9.5f, FontStyle.Regular, textColor);
+        configSummaryLabel = NewLabel("", 16, 86, 772, 82, 9.5f, FontStyle.Regular, textColor);
         page.Controls.Add(configSummaryLabel);
 
-        var openRootButton = NewButton("打开配置根目录", 16, 236, 150, 34);
+        page.Controls.Add(NewSeparator(16, 180, 772));
+        page.Controls.Add(NewLabel("运行参数", 16, 198, 140, 26, 11, FontStyle.Bold));
+
+        approvalPolicyBox = AddRuntimeCombo(page, "审批级别", 16, 234, new[] { "inherit", "untrusted", "on-request", "never" });
+        sandboxModeBox = AddRuntimeCombo(page, "沙箱模式", 322, 234, new[] { "inherit", "read-only", "workspace-write", "danger-full-access" });
+        goalModeBox = AddRuntimeCombo(page, "目标模式", 16, 278, new[] { "inherit", "enabled", "disabled" });
+        webSearchBox = AddRuntimeCombo(page, "网页搜索", 322, 278, new[] { "inherit", "enabled", "disabled" });
+
+        fullAutoCheck = new CheckBox { Text = "无需审批全自动", Location = new Point(16, 326), Size = new Size(170, 24), Font = UiFont(), BackColor = surfaceColor };
+        remoteCompactionCheck = new CheckBox { Text = "Remote compaction 兼容", Location = new Point(206, 326), Size = new Size(200, 24), Font = UiFont(), BackColor = surfaceColor };
+        strictConfigCheck = new CheckBox { Text = "严格配置校验", Location = new Point(426, 326), Size = new Size(140, 24), Font = UiFont(), BackColor = surfaceColor };
+        bypassHookTrustCheck = new CheckBox { Text = "跳过 Hook 信任确认", Location = new Point(586, 326), Size = new Size(180, 24), Font = UiFont(), BackColor = surfaceColor };
+        page.Controls.Add(fullAutoCheck);
+        page.Controls.Add(remoteCompactionCheck);
+        page.Controls.Add(strictConfigCheck);
+        page.Controls.Add(bypassHookTrustCheck);
+
+        var saveRuntimeButton = NewButton("保存运行参数", 16, 370, 130, 34, primary: true);
+        saveRuntimeButton.Click += async (_, _) => await SaveRuntimeSettingsAsync();
+        page.Controls.Add(saveRuntimeButton);
+
+        var refreshButton = NewButton("刷新配置", 164, 370, 104, 34);
+        refreshButton.Click += async (_, _) => await RefreshProfilesAsync(SelectedProfile()?.Id);
+        page.Controls.Add(refreshButton);
+
+        var previewButton = NewButton("预览 Overlay", 286, 370, 120, 34);
+        previewButton.Click += (_, _) => RefreshConfigPreview();
+        page.Controls.Add(previewButton);
+
+        var openRootButton = NewButton("打开配置根目录", 424, 370, 138, 34);
         openRootButton.Click += (_, _) => OpenFolder(GetDefaultLauncherHome());
         page.Controls.Add(openRootButton);
 
-        var openLaunchersButton = NewButton("打开快捷脚本", 184, 236, 128, 34);
+        var openLaunchersButton = NewButton("打开快捷脚本", 580, 370, 128, 34);
         openLaunchersButton.Click += (_, _) => OpenFolder(bridge.GetLaunchersDir());
         page.Controls.Add(openLaunchersButton);
 
-        var openCurrentHomeButton = NewButton("打开当前 CODEX_HOME", 16, 286, 174, 34);
+        var openCurrentHomeButton = NewButton("打开共享 HOME", 16, 420, 128, 34);
         openCurrentHomeButton.Click += (_, _) =>
         {
             var profile = SelectedProfile();
@@ -437,9 +496,26 @@ internal sealed class LauncherForm : Form
         };
         page.Controls.Add(openCurrentHomeButton);
 
-        var refreshButton = NewButton("刷新配置", 208, 286, 110, 34);
-        refreshButton.Click += async (_, _) => await RefreshProfilesAsync(SelectedProfile()?.Id);
-        page.Controls.Add(refreshButton);
+        var openOverlayButton = NewButton("打开当前 Overlay", 162, 420, 140, 34);
+        openOverlayButton.Click += (_, _) => OpenFileLocation(SelectedProfile()?.ProfileConfigPath);
+        page.Controls.Add(openOverlayButton);
+
+        page.Controls.Add(NewLabel("Overlay TOML 预览", 16, 474, 180, 24, 10, FontStyle.Bold));
+        configPreviewText = new RichTextBox
+        {
+            Location = new Point(16, 504),
+            Size = new Size(772, 190),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+            ReadOnly = true,
+            ScrollBars = RichTextBoxScrollBars.Vertical,
+            Font = MonoFont(9.5f),
+            BackColor = outputBackColor,
+            ForeColor = outputTextColor,
+            BorderStyle = BorderStyle.None,
+            DetectUrls = false,
+            WordWrap = false
+        };
+        page.Controls.Add(configPreviewText);
         return page;
     }
 
@@ -539,19 +615,49 @@ internal sealed class LauncherForm : Form
         settingsSummaryLabel = NewLabel("", 16, 92, 772, 150, 9.5f, FontStyle.Regular, textColor);
         page.Controls.Add(settingsSummaryLabel);
 
-        var openAppDirButton = NewButton("打开应用目录", 16, 266, 128, 34);
+        page.Controls.Add(NewLabel("共享 CODEX_HOME", 16, 254, 160, 24, 10, FontStyle.Bold));
+        sharedHomeBox = new TextBox
+        {
+            Location = new Point(16, 284),
+            Size = new Size(560, 28),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            Font = UiFont(9.5f),
+            BackColor = fieldColor,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        page.Controls.Add(sharedHomeBox);
+
+        var saveSharedHomeButton = NewButton("保存共享目录", 592, 282, 120, 32, primary: true);
+        saveSharedHomeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        saveSharedHomeButton.Click += async (_, _) => await SaveSharedHomeAsync();
+        page.Controls.Add(saveSharedHomeButton);
+
+        var browseSharedHomeButton = NewButton("选择", 724, 282, 64, 32);
+        browseSharedHomeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        browseSharedHomeButton.Click += (_, _) => BrowseSharedHome();
+        page.Controls.Add(browseSharedHomeButton);
+
+        var migrationButton = NewButton("迁移检查", 16, 334, 104, 34);
+        migrationButton.Click += (_, _) => ShowMigrationDryRun();
+        page.Controls.Add(migrationButton);
+
+        var legacyButton = NewButton("列出旧 HOME", 138, 334, 112, 34);
+        legacyButton.Click += (_, _) => ShowLegacyHomes();
+        page.Controls.Add(legacyButton);
+
+        var openAppDirButton = NewButton("打开应用目录", 16, 392, 128, 34);
         openAppDirButton.Click += (_, _) => OpenFolder(AppContext.BaseDirectory);
         page.Controls.Add(openAppDirButton);
 
-        var openRuntimeButton = NewButton("打开运行时目录", 162, 266, 140, 34);
+        var openRuntimeButton = NewButton("打开运行时目录", 162, 392, 140, 34);
         openRuntimeButton.Click += (_, _) => OpenFolder(GetDefaultLauncherHome());
         page.Controls.Add(openRuntimeButton);
 
-        var openDesktopButton = NewButton("打开桌面", 314, 266, 104, 34);
+        var openDesktopButton = NewButton("打开桌面", 314, 392, 104, 34);
         openDesktopButton.Click += (_, _) => OpenFolder(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
         page.Controls.Add(openDesktopButton);
 
-        var githubButton = NewButton("打开 GitHub", 432, 266, 112, 34);
+        var githubButton = NewButton("打开 GitHub", 432, 392, 112, 34);
         githubButton.Click += (_, _) => OpenUrl("https://github.com/Wyy326/codex-api-launcher-windows");
         page.Controls.Add(githubButton);
         return page;
@@ -594,16 +700,26 @@ internal sealed class LauncherForm : Form
                 $"配置根目录: {GetDefaultLauncherHome()}",
                 $"快捷脚本目录: {bridge.GetLaunchersDir()}",
                 $"当前供应商: {profile?.Name ?? "未选择"}",
-                $"当前 CODEX_HOME: {profile?.CodexHome ?? "未选择"}",
+                $"共享 CODEX_HOME: {profile?.CodexHome ?? "未选择"}",
+                $"当前 Overlay: {profile?.ProfileConfigPath ?? "未选择"}",
+                $"Legacy HOME: {profile?.LegacyCodexHome ?? ""}",
             });
         }
 
         if (settingsSummaryLabel is not null)
         {
+            var settings = bridge.GetSettings();
+            var legacyHomes = bridge.GetLegacyHomes();
+            if (sharedHomeBox is not null && !sharedHomeBox.Focused)
+            {
+                sharedHomeBox.Text = settings.SharedCodexHome;
+            }
             settingsSummaryLabel.Text = string.Join(Environment.NewLine, new[]
             {
                 $"应用目录: {AppContext.BaseDirectory}",
                 $"运行时目录: {GetDefaultLauncherHome()}",
+                $"共享 CODEX_HOME: {settings.SharedCodexHome}",
+                $"Legacy HOME 数量: {legacyHomes.Count}",
                 $"桌面目录: {Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)}",
                 "仓库: https://github.com/Wyy326/codex-api-launcher-windows",
             });
@@ -640,9 +756,9 @@ internal sealed class LauncherForm : Form
                 BaseUrl = providerBaseUrlBox.Text.Trim(),
                 Model = providerModelBox.Text.Trim(),
                 ApiKey = providerApiKeyBox.Text,
-                CodexHome = providerCodexHomeBox.Text.Trim(),
                 Workspace = profile.Workspace ?? ""
             };
+            ApplyRuntimeDraftFromControls(draft, profile);
 
             ValidateProfileDraftForSave(draft);
         }
@@ -660,6 +776,64 @@ internal sealed class LauncherForm : Form
             providerApiKeyBox.Text = "";
             await RefreshProfilesAsync(savedProfile?.Id ?? draft.Id);
         }
+    }
+
+    private async Task SaveRuntimeSettingsAsync()
+    {
+        ProfileDraft draft;
+        try
+        {
+            var profile = RequireProfile();
+            draft = new ProfileDraft
+            {
+                OriginalId = profile.Id,
+                Id = providerIdBox.Text.Trim(),
+                Name = providerNameBox.Text.Trim(),
+                BaseUrl = providerBaseUrlBox.Text.Trim(),
+                Model = providerModelBox.Text.Trim(),
+                ApiKey = "",
+                Workspace = profile.Workspace ?? ""
+            };
+            ApplyRuntimeDraftFromControls(draft, profile);
+            ValidateProfileDraftForSave(draft);
+        }
+        catch (Exception ex)
+        {
+            SetStatus(ex.Message);
+            MessageBox.Show(this, ex.Message, "无法保存运行参数", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        ProfileInfo? savedProfile = null;
+        var updated = await RunUiActionAsync("正在保存运行参数并刷新 overlay...", () => savedProfile = bridge.UpdateProfile(draft));
+        if (updated)
+        {
+            await RefreshProfilesAsync(savedProfile?.Id ?? draft.Id);
+            RefreshConfigPreview();
+        }
+    }
+
+    private void ApplyRuntimeDraftFromControls(ProfileDraft draft, ProfileInfo profile)
+    {
+        draft.ApprovalPolicy = SelectedComboValue(approvalPolicyBox, profile.ApprovalPolicy, "inherit");
+        draft.SandboxMode = SelectedComboValue(sandboxModeBox, profile.SandboxMode, "inherit");
+        draft.GoalMode = SelectedComboValue(goalModeBox, profile.GoalMode, "inherit");
+        draft.WebSearch = SelectedComboValue(webSearchBox, profile.WebSearch, "inherit");
+        draft.FullAuto = fullAutoCheck?.Checked ?? profile.FullAuto;
+        draft.RemoteCompaction = remoteCompactionCheck?.Checked ?? profile.RemoteCompaction;
+        draft.StrictConfig = strictConfigCheck?.Checked ?? profile.StrictConfig;
+        draft.BypassHookTrust = bypassHookTrustCheck?.Checked ?? profile.BypassHookTrust;
+    }
+
+    private static string SelectedComboValue(ComboBox? box, string? fallback, string defaultValue)
+    {
+        var value = box?.SelectedItem?.ToString();
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        return string.IsNullOrWhiteSpace(fallback) ? defaultValue : fallback;
     }
 
     private async Task FetchModelsAsync()
@@ -693,44 +867,14 @@ internal sealed class LauncherForm : Form
         }, timeoutMilliseconds: 60_000);
     }
 
-    private async Task MigrateCodexHomeAsync()
-    {
-        var profile = RequireProfile();
-        using var dialog = new FolderBrowserDialog
-        {
-            Description = "选择新的配置目录（会迁移当前 CODEX_HOME 内容）",
-            ShowNewFolderButton = true
-        };
-
-        var currentPath = providerCodexHomeBox.Text.Trim();
-        if (!string.IsNullOrWhiteSpace(currentPath) && Directory.Exists(currentPath))
-        {
-            dialog.SelectedPath = currentPath;
-        }
-        else if (!string.IsNullOrWhiteSpace(profile.CodexHome) && Directory.Exists(profile.CodexHome))
-        {
-            dialog.SelectedPath = profile.CodexHome;
-        }
-
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-        {
-            return;
-        }
-
-        providerCodexHomeBox.Text = dialog.SelectedPath;
-        SetStatus("已选择新的配置目录，正在迁移 CODEX_HOME 内容...");
-        await SaveProfileChangesAsync();
-    }
-
     private static void ValidateProfileDraftForSave(ProfileDraft draft)
     {
         if (string.IsNullOrWhiteSpace(draft.Name) ||
             string.IsNullOrWhiteSpace(draft.Id) ||
             string.IsNullOrWhiteSpace(draft.BaseUrl) ||
-            string.IsNullOrWhiteSpace(draft.Model) ||
-            string.IsNullOrWhiteSpace(draft.CodexHome))
+            string.IsNullOrWhiteSpace(draft.Model))
         {
-            throw new InvalidOperationException("请填写显示名称、供应商 ID、中转地址、模型和配置目录。");
+            throw new InvalidOperationException("请填写显示名称、供应商 ID、中转地址和模型。");
         }
 
         if (!Uri.TryCreate(draft.BaseUrl, UriKind.Absolute, out var uri) ||
@@ -775,14 +919,18 @@ internal sealed class LauncherForm : Form
             Location = new Point(x + 100, y),
             Size = new Size(410, 28),
             Font = UiFont(9.5f),
-            ReadOnly = false,
-            BackColor = fieldColor,
+            ReadOnly = true,
+            BackColor = softColor,
             BorderStyle = BorderStyle.FixedSingle
         };
         parent.Controls.Add(box);
 
-        migrateHomeButton = NewButton("迁移目录", x + 550, y - 2, 104, 32);
-        migrateHomeButton.Click += async (_, _) => await MigrateCodexHomeAsync();
+        migrateHomeButton = NewButton("打开 Overlay", x + 550, y - 2, 104, 32);
+        migrateHomeButton.Click += (_, _) =>
+        {
+            var profile = SelectedProfile();
+            OpenFileLocation(profile?.ProfileConfigPath);
+        };
         parent.Controls.Add(migrateHomeButton);
         return box;
     }
@@ -962,6 +1110,15 @@ internal sealed class LauncherForm : Form
             providerBaseUrlBox.Text = "";
             providerApiKeyBox.Text = "";
             providerCodexHomeBox.Text = "";
+            SetComboValue(approvalPolicyBox, "inherit");
+            SetComboValue(sandboxModeBox, "inherit");
+            SetComboValue(goalModeBox, "inherit");
+            SetComboValue(webSearchBox, "inherit");
+            if (fullAutoCheck is not null) fullAutoCheck.Checked = false;
+            if (remoteCompactionCheck is not null) remoteCompactionCheck.Checked = false;
+            if (strictConfigCheck is not null) strictConfigCheck.Checked = false;
+            if (bypassHookTrustCheck is not null) bypassHookTrustCheck.Checked = false;
+            if (configPreviewText is not null) configPreviewText.Clear();
             savedProjectLabel.Text = "已保存默认项目：无";
             workspaceBox.Text = "";
             UpdateButtons();
@@ -975,6 +1132,15 @@ internal sealed class LauncherForm : Form
         providerBaseUrlBox.Text = profile.BaseUrl;
         providerApiKeyBox.Text = "";
         providerCodexHomeBox.Text = profile.CodexHome ?? "";
+        SetComboValue(approvalPolicyBox, string.IsNullOrWhiteSpace(profile.ApprovalPolicy) ? "inherit" : profile.ApprovalPolicy);
+        SetComboValue(sandboxModeBox, string.IsNullOrWhiteSpace(profile.SandboxMode) ? "inherit" : profile.SandboxMode);
+        SetComboValue(goalModeBox, string.IsNullOrWhiteSpace(profile.GoalMode) ? "inherit" : profile.GoalMode);
+        SetComboValue(webSearchBox, string.IsNullOrWhiteSpace(profile.WebSearch) ? "inherit" : profile.WebSearch);
+        fullAutoCheck.Checked = profile.FullAuto;
+        remoteCompactionCheck.Checked = profile.RemoteCompaction;
+        strictConfigCheck.Checked = profile.StrictConfig;
+        bypassHookTrustCheck.Checked = profile.BypassHookTrust;
+        RefreshConfigPreview();
 
         if (!string.IsNullOrWhiteSpace(profile.Workspace))
         {
@@ -992,6 +1158,45 @@ internal sealed class LauncherForm : Form
 
         UpdateButtons();
         UpdateInfoPages();
+    }
+
+    private static void SetComboValue(ComboBox? box, string value)
+    {
+        if (box is null)
+        {
+            return;
+        }
+
+        for (var i = 0; i < box.Items.Count; i++)
+        {
+            if (string.Equals(box.Items[i]?.ToString(), value, StringComparison.OrdinalIgnoreCase))
+            {
+                box.SelectedIndex = i;
+                return;
+            }
+        }
+
+        if (box.Items.Count > 0)
+        {
+            box.SelectedIndex = 0;
+        }
+    }
+
+    private void RefreshConfigPreview()
+    {
+        if (configPreviewText is null)
+        {
+            return;
+        }
+
+        var profile = SelectedProfile();
+        if (profile is null || string.IsNullOrWhiteSpace(profile.ProfileConfigPath))
+        {
+            configPreviewText.Text = "";
+            return;
+        }
+
+        configPreviewText.Text = bridge.ReadTextFile(profile.ProfileConfigPath);
     }
 
     private ProfileInfo? SelectedProfile()
@@ -1030,6 +1235,15 @@ internal sealed class LauncherForm : Form
         providerBaseUrlBox.Enabled = !isBusy && hasProfile;
         providerApiKeyBox.Enabled = !isBusy && hasProfile;
         providerCodexHomeBox.Enabled = !isBusy && hasProfile;
+        if (approvalPolicyBox is not null) approvalPolicyBox.Enabled = !isBusy && hasProfile;
+        if (sandboxModeBox is not null) sandboxModeBox.Enabled = !isBusy && hasProfile;
+        if (goalModeBox is not null) goalModeBox.Enabled = !isBusy && hasProfile;
+        if (webSearchBox is not null) webSearchBox.Enabled = !isBusy && hasProfile;
+        if (fullAutoCheck is not null) fullAutoCheck.Enabled = !isBusy && hasProfile;
+        if (remoteCompactionCheck is not null) remoteCompactionCheck.Enabled = !isBusy && hasProfile;
+        if (strictConfigCheck is not null) strictConfigCheck.Enabled = !isBusy && hasProfile;
+        if (bypassHookTrustCheck is not null) bypassHookTrustCheck.Enabled = !isBusy && hasProfile;
+        if (sharedHomeBox is not null) sharedHomeBox.Enabled = !isBusy;
     }
 
     private void BrowseWorkspace()
@@ -1080,6 +1294,66 @@ internal sealed class LauncherForm : Form
         await RefreshProfilesAsync(profile.Id);
     }
 
+    private async Task SaveSharedHomeAsync()
+    {
+        var sharedHome = sharedHomeBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(sharedHome))
+        {
+            SetStatus("共享 CODEX_HOME 不能为空。");
+            return;
+        }
+
+        await RunUiActionAsync("正在保存共享 CODEX_HOME 并重写 overlay...", () => bridge.SetSharedHome(sharedHome));
+        await RefreshProfilesAsync(SelectedProfile()?.Id);
+        UpdateInfoPages();
+    }
+
+    private void BrowseSharedHome()
+    {
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = "选择共享 CODEX_HOME",
+            ShowNewFolderButton = true
+        };
+
+        if (!string.IsNullOrWhiteSpace(sharedHomeBox.Text) && Directory.Exists(sharedHomeBox.Text.Trim()))
+        {
+            dialog.SelectedPath = sharedHomeBox.Text.Trim();
+        }
+
+        if (dialog.ShowDialog(this) == DialogResult.OK)
+        {
+            sharedHomeBox.Text = dialog.SelectedPath;
+        }
+    }
+
+    private void ShowMigrationDryRun()
+    {
+        var result = bridge.GetMigrationDryRun();
+        SetStatus(string.Join(Environment.NewLine, new[]
+        {
+            "迁移检查（dry-run）",
+            $"当前版本: {result.WasVersion} -> {result.Version}",
+            $"Profile 数量: {result.ProfileCount}",
+            $"共享 CODEX_HOME: {result.SharedCodexHome}",
+            $"Legacy HOME 数量: {result.LegacyHomeCount}",
+            $"状态文件: {result.StatePath}"
+        }));
+    }
+
+    private void ShowLegacyHomes()
+    {
+        var homes = bridge.GetLegacyHomes();
+        if (homes.Count == 0)
+        {
+            SetStatus("没有记录 legacy CODEX_HOME。");
+            return;
+        }
+
+        SetStatus(string.Join(Environment.NewLine, homes.Select(home =>
+            $"{home.Id} | exists={home.Exists} | {home.LegacyCodexHome}")));
+    }
+
     private async Task StartCodexAsync()
     {
         var profile = RequireProfile();
@@ -1096,7 +1370,7 @@ internal sealed class LauncherForm : Form
                 bridge.SaveWorkspace(profile.Id, workspace);
             }
             var result = bridge.StartProfile(profile.Id, workspace);
-            BeginInvoke((Action)(() => SetStatus($"已在新的终端窗口启动 {profile.Id}。\r\n项目: {workspace}\r\nCODEX_HOME: {result.CodexHome}")));
+            BeginInvoke((Action)(() => SetStatus($"已在新的终端窗口启动 {profile.Id}。\r\n项目: {workspace}\r\n共享 CODEX_HOME: {result.CodexHome}\r\nOverlay: {result.ProfileConfigPath}")));
         });
     }
 
@@ -1284,6 +1558,37 @@ internal sealed class LauncherForm : Form
         });
     }
 
+    private void OpenFileLocation(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            SetStatus("文件路径为空。");
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            SetStatus("无法解析文件所在目录。");
+            return;
+        }
+
+        Directory.CreateDirectory(directory);
+        if (File.Exists(path))
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{path}\"",
+                UseShellExecute = true
+            });
+        }
+        else
+        {
+            OpenFolder(directory);
+        }
+    }
+
     private static void OpenUrl(string url)
     {
         Process.Start(new ProcessStartInfo
@@ -1345,7 +1650,7 @@ internal sealed class AddProfileForm : Form
     private void BuildUi()
     {
         Controls.Add(NewLabel("新增供应商", 28, 20, 240, 30, 14, FontStyle.Bold));
-        Controls.Add(NewLabel("供应商 ID 可手动指定，也可以从网站标题生成；项目目录可以留空。", 28, 54, 700, 24, 9, FontStyle.Regular, mutedColor));
+        Controls.Add(NewLabel("供应商 ID 可手动指定；共享 CODEX_HOME 自动管理，项目目录可以留空。", 28, 54, 700, 24, 9, FontStyle.Regular, mutedColor));
 
         var panel = new Panel
         {
@@ -1365,12 +1670,12 @@ internal sealed class AddProfileForm : Form
         apiKeyBox.UseSystemPasswordChar = true;
 
         panel.Controls.Add(NewLabel("目录", 20, 292, 160, 24, 10, FontStyle.Bold));
-        configDirBox = AddPathRow(panel, "配置存放目录", 326, "选择 CODEX_HOME 存放位置", BrowseConfigDir);
+        configDirBox = AddPathRow(panel, "Legacy HOME", 326, "可选：记录旧 CODEX_HOME，不参与启动", BrowseConfigDir);
         projectDirBox = AddPathRow(panel, "项目目录", 370, "选择 Codex 打开的项目目录", BrowseProjectDir);
 
         sameDirCheck = new CheckBox
         {
-            Text = "项目目录同时作为配置存放目录",
+            Text = "把项目目录记录为 legacy HOME",
             Location = new Point(166, 416),
             Size = new Size(300, 24),
             BackColor = surfaceColor,
@@ -1758,7 +2063,7 @@ internal sealed class AddProfileForm : Form
 
     private void BrowseConfigDir(object? sender, EventArgs e)
     {
-        BrowseInto(configDirBox, "选择配置存放目录（CODEX_HOME）");
+        BrowseInto(configDirBox, "选择 legacy CODEX_HOME（可选）");
     }
 
     private void BrowseProjectDir(object? sender, EventArgs e)
@@ -1838,7 +2143,7 @@ internal sealed class AddProfileForm : Form
             return;
         }
 
-        SetConfigDirText(Path.Combine(GetDefaultLauncherHome(), "profiles", id));
+        SetConfigDirText("");
     }
 
     private static string GetDefaultLauncherHome()
@@ -1868,10 +2173,9 @@ internal sealed class AddProfileForm : Form
             string.IsNullOrWhiteSpace(id) ||
             string.IsNullOrWhiteSpace(baseUrl) ||
             string.IsNullOrWhiteSpace(model) ||
-            string.IsNullOrWhiteSpace(configDir) ||
             string.IsNullOrWhiteSpace(apiKey))
         {
-            validationLabel.Text = "请填写名称、供应商 ID、中转地址、模型、API Key 和配置目录。";
+            validationLabel.Text = "请填写名称、供应商 ID、中转地址、模型和 API Key。";
             return;
         }
 
@@ -2132,6 +2436,47 @@ internal sealed class PowerShellBridge
         return JsonSerializer.Deserialize<List<ProfileInfo>>(json, JsonOptions) ?? new List<ProfileInfo>();
     }
 
+    public LauncherSettings GetSettings()
+    {
+        var output = RunModule("$settings = Get-CodexApiLauncherSettings; ConvertTo-Json -InputObject $settings -Depth 8 -Compress");
+        return JsonSerializer.Deserialize<LauncherSettings>(output.StandardOutput.Trim(), JsonOptions) ?? new LauncherSettings();
+    }
+
+    public LauncherSettings SetSharedHome(string sharedHome)
+    {
+        var output = RunModule("$settings = Set-CodexApiLauncherSharedHome -SharedCodexHome " + Quote(sharedHome) + "; " +
+            "ConvertTo-Json -InputObject $settings -Depth 8 -Compress");
+        return JsonSerializer.Deserialize<LauncherSettings>(output.StandardOutput.Trim(), JsonOptions) ?? new LauncherSettings();
+    }
+
+    public MigrationResult GetMigrationDryRun()
+    {
+        var output = RunModule("$result = Invoke-CodexApiLauncherMigration -DryRun; ConvertTo-Json -InputObject $result -Depth 8 -Compress");
+        return JsonSerializer.Deserialize<MigrationResult>(output.StandardOutput.Trim(), JsonOptions) ?? new MigrationResult();
+    }
+
+    public List<LegacyHomeInfo> GetLegacyHomes()
+    {
+        var output = RunModule("$homes = @(Get-CodexApiLegacyHomes); ConvertTo-Json -InputObject $homes -Depth 8 -Compress");
+        var json = output.StandardOutput.Trim();
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new List<LegacyHomeInfo>();
+        }
+
+        return JsonSerializer.Deserialize<List<LegacyHomeInfo>>(json, JsonOptions) ?? new List<LegacyHomeInfo>();
+    }
+
+    public string ReadTextFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return "";
+        }
+
+        return File.ReadAllText(path, Encoding.UTF8);
+    }
+
     public void CreateProfile(ProfileDraft draft)
     {
         var keyPath = Path.Combine(Path.GetTempPath(), $"codex-api-launcher-key-{Guid.NewGuid():N}.txt");
@@ -2149,8 +2494,15 @@ internal sealed class PowerShellBridge
                 "-Name " + Quote(draft.Name),
                 "-BaseUrl " + Quote(draft.BaseUrl),
                 "-Model " + Quote(draft.Model),
-                "-CodexHome " + Quote(draft.CodexHome),
                 "-Workspace " + Quote(draft.Workspace),
+                "-ApprovalPolicy " + Quote(draft.ApprovalPolicy),
+                "-SandboxMode " + Quote(draft.SandboxMode),
+                "-FullAuto " + BoolLiteral(draft.FullAuto),
+                "-GoalMode " + Quote(draft.GoalMode),
+                "-WebSearch " + Quote(draft.WebSearch),
+                "-RemoteCompaction " + BoolLiteral(draft.RemoteCompaction),
+                "-StrictConfig " + BoolLiteral(draft.StrictConfig),
+                "-BypassHookTrust " + BoolLiteral(draft.BypassHookTrust),
                 "-ApiKey $secureApiKey",
                 "| Out-Null",
                 "} finally {",
@@ -2189,8 +2541,15 @@ internal sealed class PowerShellBridge
             "-Name " + Quote(draft.Name),
             "-BaseUrl " + Quote(draft.BaseUrl),
             "-Model " + Quote(draft.Model),
-            "-CodexHome " + Quote(draft.CodexHome),
             "-Workspace " + Quote(draft.Workspace),
+            "-ApprovalPolicy " + Quote(draft.ApprovalPolicy),
+            "-SandboxMode " + Quote(draft.SandboxMode),
+            "-FullAuto " + BoolLiteral(draft.FullAuto),
+            "-GoalMode " + Quote(draft.GoalMode),
+            "-WebSearch " + Quote(draft.WebSearch),
+            "-RemoteCompaction " + BoolLiteral(draft.RemoteCompaction),
+            "-StrictConfig " + BoolLiteral(draft.StrictConfig),
+            "-BypassHookTrust " + BoolLiteral(draft.BypassHookTrust),
             ";",
             "ConvertTo-Json -InputObject $result -Depth 8 -Compress"
         };
@@ -2429,6 +2788,11 @@ internal sealed class PowerShellBridge
         return "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
     }
 
+    private static string BoolLiteral(bool value)
+    {
+        return value ? "$true" : "$false";
+    }
+
     private static string TrimForDisplay(string value, int maxLength)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -2451,6 +2815,14 @@ internal sealed class ProfileDraft
     public string ApiKey { get; set; } = "";
     public string CodexHome { get; set; } = "";
     public string Workspace { get; set; } = "";
+    public string ApprovalPolicy { get; set; } = "inherit";
+    public string SandboxMode { get; set; } = "inherit";
+    public bool FullAuto { get; set; }
+    public string GoalMode { get; set; } = "inherit";
+    public string WebSearch { get; set; } = "inherit";
+    public bool RemoteCompaction { get; set; }
+    public bool StrictConfig { get; set; }
+    public bool BypassHookTrust { get; set; }
 }
 
 internal sealed class ProfileInfo
@@ -2462,6 +2834,18 @@ internal sealed class ProfileInfo
     public string EnvKeyName { get; set; } = "";
     public string? Workspace { get; set; }
     public string? CodexHome { get; set; }
+    public string? SharedCodexHome { get; set; }
+    public string? LegacyCodexHome { get; set; }
+    public string? ProfileConfigPath { get; set; }
+    public string? ConfigPath { get; set; }
+    public string ApprovalPolicy { get; set; } = "inherit";
+    public string SandboxMode { get; set; } = "inherit";
+    public bool FullAuto { get; set; }
+    public string GoalMode { get; set; } = "inherit";
+    public string WebSearch { get; set; } = "inherit";
+    public bool RemoteCompaction { get; set; }
+    public bool StrictConfig { get; set; }
+    public bool BypassHookTrust { get; set; }
 }
 
 internal sealed class StartProfileResult
@@ -2470,6 +2854,8 @@ internal sealed class StartProfileResult
     public bool Started { get; set; }
     public string Shell { get; set; } = "";
     public string CodexHome { get; set; } = "";
+    public string SharedCodexHome { get; set; } = "";
+    public string ProfileConfigPath { get; set; } = "";
     public string LauncherPath { get; set; } = "";
 }
 
@@ -2481,4 +2867,36 @@ internal sealed class ProfileTestResult
     public int? ResponsesHttpStatus { get; set; }
     public int? ModelCount { get; set; }
     public string? Details { get; set; }
+}
+
+internal sealed class LauncherSettings
+{
+    public int Version { get; set; }
+    public string LauncherVersion { get; set; } = "";
+    public string Root { get; set; } = "";
+    public string SharedCodexHome { get; set; } = "";
+    public string ProfilesPath { get; set; } = "";
+    public string SecretsDir { get; set; } = "";
+    public string LaunchersDir { get; set; } = "";
+}
+
+internal sealed class MigrationResult
+{
+    public bool DryRun { get; set; }
+    public int WasVersion { get; set; }
+    public int Version { get; set; }
+    public int ProfileCount { get; set; }
+    public string SharedCodexHome { get; set; } = "";
+    public int LegacyHomeCount { get; set; }
+    public List<string> LegacyHomes { get; set; } = new();
+    public string StatePath { get; set; } = "";
+}
+
+internal sealed class LegacyHomeInfo
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string LegacyCodexHome { get; set; } = "";
+    public bool Exists { get; set; }
+    public string SharedCodexHome { get; set; } = "";
 }
