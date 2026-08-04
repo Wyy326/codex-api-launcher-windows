@@ -60,8 +60,8 @@ UI 支持：
 默认会生成：
 
 ```text
-dist\CodexApiLauncherDesktop-win-x64\CodexApiLauncher.exe
-dist\CodexApiLauncherDesktop-0.4.0-local-win-x64.zip
+dist\CodexApiLauncherDesktop-0.4.1-win-x64\CodexApiLauncher.exe
+dist\CodexApiLauncherDesktop-0.4.1-win-x64.zip
 ```
 
 发布包是 self-contained win-x64 构建，不需要目标机器额外安装 .NET 运行时。运行时仍会调用同目录的 PowerShell 模块，以复用已有的 profile、API Key 加密存储、共享 `CODEX_HOME` 和 overlay 配置逻辑。默认启动优先走 Windows Terminal，减少传统 PowerShell 黑窗口。

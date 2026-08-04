@@ -2,7 +2,7 @@
 param(
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
-    [string]$Version = "0.4.0-local",
+    [string]$Version = "0.4.1",
     [string]$DotnetPath,
     [switch]$NoZip
 )
@@ -13,7 +13,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = Join-Path $repoRoot "desktop\CodexApiLauncher.Desktop\CodexApiLauncher.Desktop.csproj"
 $distRoot = Join-Path $repoRoot "dist"
-$publishDir = Join-Path $distRoot "CodexApiLauncherDesktop-$Runtime"
+$publishDir = Join-Path $distRoot "CodexApiLauncherDesktop-$Version-$Runtime"
 $zipPath = Join-Path $distRoot "CodexApiLauncherDesktop-$Version-$Runtime.zip"
 
 function Resolve-Dotnet {

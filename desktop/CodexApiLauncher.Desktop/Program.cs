@@ -112,6 +112,8 @@ internal sealed class LauncherForm : Form
     private Button homeButton = null!;
     private Button copyOutputButton = null!;
     private Button clearOutputButton = null!;
+    private Panel topBarPanel = null!;
+    private Label appTitleLabel = null!;
     private Label outputTitleLabel = null!;
     private Label outputMetaLabel = null!;
     private RichTextBox statusText = null!;
@@ -169,25 +171,29 @@ internal sealed class LauncherForm : Form
         BackColor = windowColor;
         Font = UiFont();
 
-        var topBar = new Panel
+        topBarPanel = new Panel
         {
             Location = new Point(0, 0),
             Size = new Size(ClientSize.Width, 72),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             BackColor = surfaceColor
         };
+        var topBar = topBarPanel;
         Controls.Add(topBar);
 
         topBar.Controls.Add(NewLabel(">_", 24, 22, 36, 26, 11, FontStyle.Bold, primaryColor));
-        topBar.Controls.Add(NewLabel("CodexCLI API 多开启动器", 68, 18, 330, 32, 14, FontStyle.Bold, primaryColor));
-        dashboardNavButton = NewNavButton("仪表盘", 462, 18, 74, LauncherPage.Dashboard);
-        configNavButton = NewNavButton("配置", 546, 18, 58, LauncherPage.Config);
-        logsNavButton = NewNavButton("日志", 614, 18, 58, LauncherPage.Logs);
-        settingsNavButton = NewNavButton("设置", 682, 18, 58, LauncherPage.Settings);
+        appTitleLabel = NewLabel("CodexCLI API 多开启动器", 68, 18, 420, 32, 14, FontStyle.Bold, primaryColor);
+        topBar.Controls.Add(appTitleLabel);
+        dashboardNavButton = NewNavButton("仪表盘", 0, 18, 74, LauncherPage.Dashboard);
+        configNavButton = NewNavButton("配置", 0, 18, 58, LauncherPage.Config);
+        logsNavButton = NewNavButton("日志", 0, 18, 58, LauncherPage.Logs);
+        settingsNavButton = NewNavButton("设置", 0, 18, 58, LauncherPage.Settings);
         topBar.Controls.Add(dashboardNavButton);
         topBar.Controls.Add(configNavButton);
         topBar.Controls.Add(logsNavButton);
         topBar.Controls.Add(settingsNavButton);
+        topBar.Resize += (_, _) => LayoutTopBar();
+        LayoutTopBar();
         var topBorder = NewSeparator(0, 71, ClientSize.Width);
         topBorder.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         Controls.Add(topBorder);
@@ -378,6 +384,29 @@ internal sealed class LauncherForm : Form
         UpdateButtons();
     }
 
+    private void LayoutTopBar()
+    {
+        if (topBarPanel is null ||
+            appTitleLabel is null ||
+            dashboardNavButton is null ||
+            configNavButton is null ||
+            logsNavButton is null ||
+            settingsNavButton is null)
+        {
+            return;
+        }
+
+        const int gap = 10;
+        var right = Math.Max(760, topBarPanel.ClientSize.Width - 24);
+        settingsNavButton.Left = right - settingsNavButton.Width;
+        logsNavButton.Left = settingsNavButton.Left - gap - logsNavButton.Width;
+        configNavButton.Left = logsNavButton.Left - gap - configNavButton.Width;
+        dashboardNavButton.Left = configNavButton.Left - gap - dashboardNavButton.Width;
+
+        var titleRight = dashboardNavButton.Left - 20;
+        appTitleLabel.Width = Math.Max(360, titleRight - appTitleLabel.Left);
+    }
+
     private Button NewNavButton(string text, int x, int y, int width, LauncherPage page)
     {
         var button = NewButton(text, x, y, width, 36);
@@ -402,13 +431,12 @@ internal sealed class LauncherForm : Form
     private ComboBox AddModelField(Control parent, string label, int x, int y)
     {
         parent.Controls.Add(NewLabel(label, x, y + 4, 86, 24, 9, FontStyle.Bold, mutedColor));
-        var box = new ComboBox
+        var box = new LauncherComboBox
         {
             Location = new Point(x + 100, y),
             Size = new Size(410, 28),
             Font = UiFont(9.5f),
             DropDownStyle = ComboBoxStyle.DropDown,
-            FlatStyle = FlatStyle.Flat,
             AutoCompleteMode = AutoCompleteMode.SuggestAppend,
             AutoCompleteSource = AutoCompleteSource.ListItems
         };
@@ -423,13 +451,12 @@ internal sealed class LauncherForm : Form
     private ComboBox AddRuntimeCombo(Control parent, string label, int x, int y, string[] items)
     {
         parent.Controls.Add(NewLabel(label, x, y + 4, 90, 24, 9, FontStyle.Bold, mutedColor));
-        var box = new ComboBox
+        var box = new LauncherComboBox
         {
             Location = new Point(x + 98, y),
             Size = new Size(180, 28),
             Font = UiFont(9.5f),
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            FlatStyle = FlatStyle.Flat
+            DropDownStyle = ComboBoxStyle.DropDownList
         };
         box.Items.AddRange(items.Cast<object>().ToArray());
         if (box.Items.Count > 0)
@@ -438,6 +465,22 @@ internal sealed class LauncherForm : Form
         }
         parent.Controls.Add(box);
         return box;
+    }
+
+    private CheckBox NewRuntimeCheckBox(string text, int x, int y, int width, string tooltip)
+    {
+        var check = new CheckBox
+        {
+            Text = text,
+            Location = new Point(x, y),
+            Size = new Size(width, 24),
+            Font = UiFont(),
+            BackColor = surfaceColor,
+            ForeColor = textColor,
+            AutoEllipsis = true
+        };
+        toolTip.SetToolTip(check, tooltip);
+        return check;
     }
 
     private Panel BuildConfigPage()
@@ -453,42 +496,49 @@ internal sealed class LauncherForm : Form
 
         page.Controls.Add(NewSeparator(16, 180, 772));
         page.Controls.Add(NewLabel("运行参数", 16, 198, 140, 26, 11, FontStyle.Bold));
+        page.Controls.Add(NewLabel("这些参数只影响启动命令，不写入 API Key。实验项默认关闭。", 126, 201, 560, 22, 9, FontStyle.Regular, mutedColor));
 
         approvalPolicyBox = AddRuntimeCombo(page, "审批级别", 16, 234, new[] { "inherit", "untrusted", "on-request", "never" });
         sandboxModeBox = AddRuntimeCombo(page, "沙箱模式", 322, 234, new[] { "inherit", "read-only", "workspace-write", "danger-full-access" });
         goalModeBox = AddRuntimeCombo(page, "目标模式", 16, 278, new[] { "inherit", "enabled", "disabled" });
         webSearchBox = AddRuntimeCombo(page, "网页搜索", 322, 278, new[] { "inherit", "enabled", "disabled" });
+        toolTip.SetToolTip(approvalPolicyBox, "inherit 使用 Codex 默认值；never 表示不再请求审批。开启全自动时会覆盖该项。");
+        toolTip.SetToolTip(sandboxModeBox, "inherit 使用 Codex 默认值；danger-full-access 会取消沙箱限制。");
+        toolTip.SetToolTip(goalModeBox, "控制是否追加 --enable goals 或 --disable goals。");
+        toolTip.SetToolTip(webSearchBox, "enabled 追加 --search；disabled 写入 web_search=\"disabled\"。");
 
-        fullAutoCheck = new CheckBox { Text = "无需审批全自动", Location = new Point(16, 326), Size = new Size(170, 24), Font = UiFont(), BackColor = surfaceColor };
-        remoteCompactionCheck = new CheckBox { Text = "Remote compaction 兼容", Location = new Point(206, 326), Size = new Size(200, 24), Font = UiFont(), BackColor = surfaceColor };
-        strictConfigCheck = new CheckBox { Text = "严格配置校验", Location = new Point(426, 326), Size = new Size(140, 24), Font = UiFont(), BackColor = surfaceColor };
-        bypassHookTrustCheck = new CheckBox { Text = "跳过 Hook 信任确认", Location = new Point(586, 326), Size = new Size(180, 24), Font = UiFont(), BackColor = surfaceColor };
+        fullAutoCheck = NewRuntimeCheckBox("无需审批全自动", 16, 326, 178, "追加 --dangerously-bypass-approvals-and-sandbox。只在完全信任项目和命令时使用。");
+        remoteCompactionCheck = NewRuntimeCheckBox("远程压缩兼容", 212, 326, 166, "把 overlay 里的 provider name 写成 OpenAI，用来兼容依赖 OpenAI provider 名称的远程压缩逻辑。");
+        strictConfigCheck = NewRuntimeCheckBox("严格配置校验", 396, 326, 156, "追加 --strict-config。Codex 发现未知或不被支持的配置项时直接报错。");
+        bypassHookTrustCheck = NewRuntimeCheckBox("跳过 Hook 信任", 570, 326, 170, "追加 --dangerously-bypass-hook-trust。会绕过 hook 信任确认，只建议临时排查使用。");
         page.Controls.Add(fullAutoCheck);
         page.Controls.Add(remoteCompactionCheck);
         page.Controls.Add(strictConfigCheck);
         page.Controls.Add(bypassHookTrustCheck);
 
-        var saveRuntimeButton = NewButton("保存运行参数", 16, 370, 130, 34, primary: true);
+        page.Controls.Add(NewLabel("远程压缩兼容只改 provider name；严格配置会提前暴露配置错误；跳过 Hook 信任属于危险绕过。", 16, 358, 760, 36, 8.5f, FontStyle.Regular, mutedColor));
+
+        var saveRuntimeButton = NewButton("保存运行参数", 16, 410, 130, 34, primary: true);
         saveRuntimeButton.Click += async (_, _) => await SaveRuntimeSettingsAsync();
         page.Controls.Add(saveRuntimeButton);
 
-        var refreshButton = NewButton("刷新配置", 164, 370, 104, 34);
+        var refreshButton = NewButton("刷新配置", 164, 410, 104, 34);
         refreshButton.Click += async (_, _) => await RefreshProfilesAsync(SelectedProfile()?.Id);
         page.Controls.Add(refreshButton);
 
-        var previewButton = NewButton("预览 Overlay", 286, 370, 120, 34);
+        var previewButton = NewButton("预览 Overlay", 286, 410, 120, 34);
         previewButton.Click += (_, _) => RefreshConfigPreview();
         page.Controls.Add(previewButton);
 
-        var openRootButton = NewButton("打开配置根目录", 424, 370, 138, 34);
+        var openRootButton = NewButton("打开配置根目录", 424, 410, 138, 34);
         openRootButton.Click += (_, _) => OpenFolder(GetDefaultLauncherHome());
         page.Controls.Add(openRootButton);
 
-        var openLaunchersButton = NewButton("打开快捷脚本", 580, 370, 128, 34);
+        var openLaunchersButton = NewButton("打开快捷脚本", 580, 410, 128, 34);
         openLaunchersButton.Click += (_, _) => OpenFolder(bridge.GetLaunchersDir());
         page.Controls.Add(openLaunchersButton);
 
-        var openCurrentHomeButton = NewButton("打开共享 HOME", 16, 420, 128, 34);
+        var openCurrentHomeButton = NewButton("打开共享 HOME", 16, 460, 128, 34);
         openCurrentHomeButton.Click += (_, _) =>
         {
             var profile = SelectedProfile();
@@ -496,15 +546,15 @@ internal sealed class LauncherForm : Form
         };
         page.Controls.Add(openCurrentHomeButton);
 
-        var openOverlayButton = NewButton("打开当前 Overlay", 162, 420, 140, 34);
+        var openOverlayButton = NewButton("打开当前 Overlay", 162, 460, 140, 34);
         openOverlayButton.Click += (_, _) => OpenFileLocation(SelectedProfile()?.ProfileConfigPath);
         page.Controls.Add(openOverlayButton);
 
-        page.Controls.Add(NewLabel("Overlay TOML 预览", 16, 474, 180, 24, 10, FontStyle.Bold));
+        page.Controls.Add(NewLabel("Overlay TOML 预览", 16, 514, 180, 24, 10, FontStyle.Bold));
         configPreviewText = new RichTextBox
         {
-            Location = new Point(16, 504),
-            Size = new Size(772, 190),
+            Location = new Point(16, 544),
+            Size = new Size(772, 150),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
             ReadOnly = true,
             ScrollBars = RichTextBoxScrollBars.Vertical,
@@ -1778,13 +1828,12 @@ internal sealed class AddProfileForm : Form
     private ComboBox AddModelRow(Control parent, int y)
     {
         parent.Controls.Add(NewLabel("模型", 20, y + 4, 132, 24, 9, FontStyle.Bold));
-        var box = new ComboBox
+        var box = new LauncherComboBox
         {
             Location = new Point(166, y),
             Size = new Size(398, 28),
             Font = uiFont(9.5f, FontStyle.Regular),
             DropDownStyle = ComboBoxStyle.DropDown,
-            FlatStyle = FlatStyle.Flat,
             AutoCompleteMode = AutoCompleteMode.SuggestAppend,
             AutoCompleteSource = AutoCompleteSource.ListItems
         };
@@ -2223,6 +2272,80 @@ internal sealed class AddProfileForm : Form
 
         var id = builder.ToString().Trim('-', '_');
         return string.IsNullOrWhiteSpace(id) ? "" : id;
+    }
+}
+
+internal sealed class LauncherComboBox : ComboBox
+{
+    private const int WmPaint = 0x000F;
+    private const int WmNcPaint = 0x0085;
+
+    public Color BorderColor { get; set; } = Color.FromArgb(150, 150, 150);
+    public Color FocusBorderColor { get; set; } = Color.FromArgb(26, 26, 26);
+    public Color DisabledBorderColor { get; set; } = Color.FromArgb(210, 210, 210);
+
+    public LauncherComboBox()
+    {
+        FlatStyle = FlatStyle.Flat;
+        BackColor = Color.White;
+        ForeColor = Color.FromArgb(26, 26, 26);
+        IntegralHeight = false;
+    }
+
+    protected override void OnGotFocus(EventArgs e)
+    {
+        base.OnGotFocus(e);
+        Invalidate();
+    }
+
+    protected override void OnLostFocus(EventArgs e)
+    {
+        base.OnLostFocus(e);
+        Invalidate();
+    }
+
+    protected override void OnEnabledChanged(EventArgs e)
+    {
+        base.OnEnabledChanged(e);
+        Invalidate();
+    }
+
+    protected override void OnDropDown(EventArgs e)
+    {
+        base.OnDropDown(e);
+        Invalidate();
+    }
+
+    protected override void OnDropDownClosed(EventArgs e)
+    {
+        base.OnDropDownClosed(e);
+        Invalidate();
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+        if (m.Msg == WmPaint || m.Msg == WmNcPaint)
+        {
+            DrawBorder();
+        }
+    }
+
+    private void DrawBorder()
+    {
+        if (!IsHandleCreated || Width <= 0 || Height <= 0)
+        {
+            return;
+        }
+
+        var color = !Enabled
+            ? DisabledBorderColor
+            : Focused || DroppedDown
+                ? FocusBorderColor
+                : BorderColor;
+        using var graphics = Graphics.FromHwnd(Handle);
+        using var pen = new Pen(color, Focused || DroppedDown ? 2.0f : 1.0f);
+        graphics.DrawRectangle(pen, new Rectangle(0, 0, Width - 1, Height - 1));
     }
 }
 

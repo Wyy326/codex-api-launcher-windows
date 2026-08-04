@@ -1,6 +1,6 @@
 Set-StrictMode -Version 2.0
 
-$script:LauncherVersion = "0.4.0-local"
+$script:LauncherVersion = "0.4.1"
 $script:StateSchemaVersion = 2
 
 function Get-CodexApiLauncherRoot {
