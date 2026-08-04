@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2
+
+- 修复 `resume` / `fork` / `exec` / `review` 子命令启动时的运行参数顺序；全自动、审批、sandbox、web search 等参数现在会放在子命令后面，避免恢复旧会话时继续沿用旧的审批上下文。
+- 新建 profile 默认改为无审批全自动：`approvalPolicy=never`、`sandboxMode=danger-full-access`、`fullAuto=true`、`bypassHookTrust=true`。
+- `fullAuto=true` 现在会同时追加 `--dangerously-bypass-hook-trust`，确保 UI 勾选“无需审批全自动”时启动命令不再因为 hook trust 单独弹确认。
+
 ## 0.4.1
 
 - 改进桌面端标题栏布局，导航按钮贴右排列，避免产品标题被截断。

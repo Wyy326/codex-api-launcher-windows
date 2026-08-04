@@ -179,14 +179,14 @@ function Get-ProfileConfigPath {
 
 function New-DefaultRuntimeConfig {
     [pscustomobject][ordered]@{
-        approvalPolicy = "inherit"
-        sandboxMode = "inherit"
-        fullAuto = $false
+        approvalPolicy = "never"
+        sandboxMode = "danger-full-access"
+        fullAuto = $true
         goalMode = "inherit"
         webSearch = "inherit"
         remoteCompaction = $false
         strictConfig = $false
-        bypassHookTrust = $false
+        bypassHookTrust = $true
     }
 }
 
@@ -592,7 +592,8 @@ function Get-CodexRuntimeArgs {
     $runtime = Get-ProfileRuntimeConfig -Profile $Profile
     $args = @()
 
-    if (ConvertTo-BooleanValue (Get-ObjectPropertyValue -Object $runtime -Name "fullAuto" -DefaultValue $false)) {
+    $fullAuto = ConvertTo-BooleanValue (Get-ObjectPropertyValue -Object $runtime -Name "fullAuto" -DefaultValue $true)
+    if ($fullAuto) {
         $args += "--dangerously-bypass-approvals-and-sandbox"
     }
     else {
@@ -627,10 +628,48 @@ function Get-CodexRuntimeArgs {
         $args += "--strict-config"
     }
 
-    if (ConvertTo-BooleanValue (Get-ObjectPropertyValue -Object $runtime -Name "bypassHookTrust" -DefaultValue $false)) {
+    if ($fullAuto -or (ConvertTo-BooleanValue (Get-ObjectPropertyValue -Object $runtime -Name "bypassHookTrust" -DefaultValue $true))) {
         $args += "--dangerously-bypass-hook-trust"
     }
 
+    return $args
+}
+
+function Test-CodexSubcommandAcceptsRuntimeArgs {
+    param([string]$Command)
+
+    return $Command -in @("exec", "review", "resume", "fork")
+}
+
+function Join-CodexInvocationArgs {
+    param(
+        [string[]]$BaseArgs = @(),
+        [string[]]$RuntimeArgs = @(),
+        [string[]]$CodexArgs = @()
+    )
+
+    $args = @()
+    if ($BaseArgs) {
+        $args += $BaseArgs
+    }
+
+    if ($CodexArgs -and $CodexArgs.Count -gt 0 -and (Test-CodexSubcommandAcceptsRuntimeArgs -Command $CodexArgs[0])) {
+        $args += $CodexArgs[0]
+        if ($RuntimeArgs) {
+            $args += $RuntimeArgs
+        }
+        if ($CodexArgs.Count -gt 1) {
+            $args += $CodexArgs[1..($CodexArgs.Count - 1)]
+        }
+        return $args
+    }
+
+    if ($RuntimeArgs) {
+        $args += $RuntimeArgs
+    }
+    if ($CodexArgs) {
+        $args += $CodexArgs
+    }
     return $args
 }
 
@@ -760,14 +799,14 @@ function New-CodexApiProfile {
         [string]$Workspace = "",
         [string]$CodexHome = "",
         [ValidateSet("low", "medium", "high", "xhigh", "max", "ultra")][string]$ReasoningEffort = "medium",
-        [ValidateSet("inherit", "untrusted", "on-request", "never")][string]$ApprovalPolicy = "inherit",
-        [ValidateSet("inherit", "read-only", "workspace-write", "danger-full-access")][string]$SandboxMode = "inherit",
-        [bool]$FullAuto = $false,
+        [ValidateSet("inherit", "untrusted", "on-request", "never")][string]$ApprovalPolicy = "never",
+        [ValidateSet("inherit", "read-only", "workspace-write", "danger-full-access")][string]$SandboxMode = "danger-full-access",
+        [bool]$FullAuto = $true,
         [ValidateSet("inherit", "enabled", "disabled")][string]$GoalMode = "inherit",
         [ValidateSet("inherit", "enabled", "disabled")][string]$WebSearch = "inherit",
         [bool]$RemoteCompaction = $false,
         [bool]$StrictConfig = $false,
-        [bool]$BypassHookTrust = $false,
+        [bool]$BypassHookTrust = $true,
         [securestring]$ApiKey,
         [switch]$Force
     )
@@ -1585,11 +1624,9 @@ function Invoke-CodexApiProfileInCurrentWindow {
         else {
             (Get-Location).Path
         }
-        $args = @("--profile", [string]$Profile.id, "-C", $workspaceToUse)
-        $args += @(Get-CodexRuntimeArgs -Profile $Profile)
-        if ($CodexArgs) {
-            $args += $CodexArgs
-        }
+        $baseArgs = @("--profile", [string]$Profile.id, "-C", $workspaceToUse)
+        $runtimeArgs = @(Get-CodexRuntimeArgs -Profile $Profile)
+        $args = @(Join-CodexInvocationArgs -BaseArgs $baseArgs -RuntimeArgs $runtimeArgs -CodexArgs $CodexArgs)
 
         $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
         if (-not $codexCommand) {

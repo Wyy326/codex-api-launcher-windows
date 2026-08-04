@@ -1160,14 +1160,14 @@ internal sealed class LauncherForm : Form
             providerBaseUrlBox.Text = "";
             providerApiKeyBox.Text = "";
             providerCodexHomeBox.Text = "";
-            SetComboValue(approvalPolicyBox, "inherit");
-            SetComboValue(sandboxModeBox, "inherit");
+            SetComboValue(approvalPolicyBox, "never");
+            SetComboValue(sandboxModeBox, "danger-full-access");
             SetComboValue(goalModeBox, "inherit");
             SetComboValue(webSearchBox, "inherit");
-            if (fullAutoCheck is not null) fullAutoCheck.Checked = false;
+            if (fullAutoCheck is not null) fullAutoCheck.Checked = true;
             if (remoteCompactionCheck is not null) remoteCompactionCheck.Checked = false;
             if (strictConfigCheck is not null) strictConfigCheck.Checked = false;
-            if (bypassHookTrustCheck is not null) bypassHookTrustCheck.Checked = false;
+            if (bypassHookTrustCheck is not null) bypassHookTrustCheck.Checked = true;
             if (configPreviewText is not null) configPreviewText.Clear();
             savedProjectLabel.Text = "已保存默认项目：无";
             workspaceBox.Text = "";
@@ -2938,14 +2938,14 @@ internal sealed class ProfileDraft
     public string ApiKey { get; set; } = "";
     public string CodexHome { get; set; } = "";
     public string Workspace { get; set; } = "";
-    public string ApprovalPolicy { get; set; } = "inherit";
-    public string SandboxMode { get; set; } = "inherit";
-    public bool FullAuto { get; set; }
+    public string ApprovalPolicy { get; set; } = "never";
+    public string SandboxMode { get; set; } = "danger-full-access";
+    public bool FullAuto { get; set; } = true;
     public string GoalMode { get; set; } = "inherit";
     public string WebSearch { get; set; } = "inherit";
     public bool RemoteCompaction { get; set; }
     public bool StrictConfig { get; set; }
-    public bool BypassHookTrust { get; set; }
+    public bool BypassHookTrust { get; set; } = true;
 }
 
 internal sealed class ProfileInfo
@@ -2961,14 +2961,14 @@ internal sealed class ProfileInfo
     public string? LegacyCodexHome { get; set; }
     public string? ProfileConfigPath { get; set; }
     public string? ConfigPath { get; set; }
-    public string ApprovalPolicy { get; set; } = "inherit";
-    public string SandboxMode { get; set; } = "inherit";
-    public bool FullAuto { get; set; }
+    public string ApprovalPolicy { get; set; } = "never";
+    public string SandboxMode { get; set; } = "danger-full-access";
+    public bool FullAuto { get; set; } = true;
     public string GoalMode { get; set; } = "inherit";
     public string WebSearch { get; set; } = "inherit";
     public bool RemoteCompaction { get; set; }
     public bool StrictConfig { get; set; }
-    public bool BypassHookTrust { get; set; }
+    public bool BypassHookTrust { get; set; } = true;
 }
 
 internal sealed class StartProfileResult

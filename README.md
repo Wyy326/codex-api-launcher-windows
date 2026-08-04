@@ -102,6 +102,8 @@ New-CodexApiProfile `
   -ApiKey $key
 ```
 
+新建 profile 默认启用无审批全自动：`approvalPolicy = never`、`sandboxMode = danger-full-access`、`fullAuto = true`、`bypassHookTrust = true`。如果需要更保守的模式，可以在“配置”页关闭“无需审批全自动”，或用 `Set-CodexApiProfileRuntime` 改回 `on-request` / `workspace-write`。
+
 默认共享 home：
 
 ```text
@@ -145,7 +147,15 @@ Set-CodexApiProfileRuntime `
   -WebSearch "disabled"
 ```
 
-`-FullAuto $true` 会使用 `--dangerously-bypass-approvals-and-sandbox`，并避免再追加冲突的审批或 sandbox 参数。
+`-FullAuto $true` 会使用 `--dangerously-bypass-approvals-and-sandbox`，并自动追加 `--dangerously-bypass-hook-trust`，同时避免再追加冲突的审批或 sandbox 参数。
+
+恢复或分叉旧会话时，运行参数会放在 Codex 子命令后面，例如：
+
+```text
+codex --profile shuaiapi -C D:\workplace\your-project resume --dangerously-bypass-approvals-and-sandbox --last
+```
+
+如果旧会话已经以 `on-request` 或 `workspace-write` 启动，直接 `resume --last` 可能继续显示旧会话里的审批提示；需要用包含全自动参数的新启动命令重新恢复或分叉。
 
 ## 查看和检查
 
