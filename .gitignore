@@ -13,6 +13,8 @@ launchers/
 desktop/**/bin/
 desktop/**/obj/
 dist/
+.dotnet/
+.dotnet-downloads/
 
 # Local-only archives and machine-specific notes
 releases/local/*.zip

@@ -1405,35 +1405,35 @@ internal sealed class LauncherForm : Form
     {
         var profile = RequireProfile();
         var (workspace, usedFallback) = ResolveCliCheckWorkspace();
-        CliCheckResult? result = null;
-        await RunUiActionAsync("正在运行真实 Codex CLI 检查...", () =>
-        {
-            result = bridge.RunCliCheck(profile.Id, workspace, usedFallback);
-        }, timeoutMilliseconds: 240_000);
-
-        if (result is not null)
-        {
-            var details = FormatCliResult(result);
-            SetStatus(details, BuildCliDashboardSummary(result));
-            ShowCheckResultDialog(BuildCliCheckDialogData(profile, result));
-        }
+        await RunCheckWithDialogAsync(
+            title: "CLI 检查进行中",
+            subtitle: $"{profile.Name} | {profile.Model}",
+            busyText: "正在运行真实 Codex CLI 检查...",
+            loadingSummary: "正在启动 Codex CLI，并等待选定模型返回 CLI_OK。",
+            action: () => bridge.RunCliCheck(profile.Id, workspace, usedFallback),
+            onSuccess: result =>
+            {
+                var details = FormatCliResult(result);
+                SetStatus(details, BuildCliDashboardSummary(result));
+                return BuildCliCheckDialogData(profile, result);
+            });
     }
 
     private async Task RunHttpTestAsync()
     {
         var profile = RequireProfile();
-        ProfileTestResult? result = null;
-        await RunUiActionAsync("正在运行 HTTP 连通性检查...", () =>
-        {
-            result = bridge.TestProfile(profile.Id);
-        }, timeoutMilliseconds: 60_000);
-
-        if (result is not null)
-        {
-            var details = FormatHttpResult(result, profile);
-            SetStatus(details, BuildHttpDashboardSummary(result));
-            ShowCheckResultDialog(BuildHttpCheckDialogData(profile, result));
-        }
+        await RunCheckWithDialogAsync(
+            title: "HTTP 检查进行中",
+            subtitle: $"{profile.Name} | {profile.Model}",
+            busyText: "正在运行 HTTP 连通性检查...",
+            loadingSummary: "正在用当前选中的模型请求 /responses，完成后会显示 HTTP 状态和错误原因。",
+            action: () => bridge.TestProfile(profile.Id),
+            onSuccess: result =>
+            {
+                var details = FormatHttpResult(result, profile);
+                SetStatus(details, BuildHttpDashboardSummary(result));
+                return BuildHttpCheckDialogData(profile, result);
+            });
     }
 
     private ProfileInfo RequireProfile()
@@ -1513,17 +1513,19 @@ internal sealed class LauncherForm : Form
 
     private string FormatHttpResult(ProfileTestResult result, ProfileInfo profile)
     {
+        var endpoint = string.IsNullOrWhiteSpace(result.Endpoint) ? "/responses" : result.Endpoint;
+        var latency = result.LatencyMs.HasValue ? $"{result.LatencyMs.Value} ms" : "无";
         return RedactSecrets(string.Join(Environment.NewLine, new[]
         {
             "HTTP 连通性检查",
             $"供应商: {profile.Name} ({profile.Id})",
             $"Base URL: {profile.BaseUrl}",
             $"模型: {profile.Model}",
+            $"Endpoint: {endpoint}",
             $"状态: {TranslateProviderStatus(result.Status)}",
             $"是否通过: {result.Ok}",
-            $"/models HTTP: {FormatHttpCode(result.ModelsHttpStatus)}",
             $"/responses HTTP: {FormatHttpCode(result.ResponsesHttpStatus)}",
-            $"模型数量: {FormatNullable(result.ModelCount)}",
+            $"耗时: {latency}",
             $"详情: {result.Details ?? ""}"
         }));
     }
@@ -1553,10 +1555,11 @@ internal sealed class LauncherForm : Form
     {
         if (result.Ok)
         {
-            return $"HTTP 检查通过。/models {FormatHttpCode(result.ModelsHttpStatus)}，/responses {FormatHttpCode(result.ResponsesHttpStatus)}。";
+            var latency = result.LatencyMs.HasValue ? $"，耗时 {result.LatencyMs.Value} ms" : "";
+            return $"HTTP 检查通过。/responses {FormatHttpCode(result.ResponsesHttpStatus)}{latency}。";
         }
 
-        return $"HTTP 检查失败：{TranslateProviderStatus(result.Status)}。/models {FormatHttpCode(result.ModelsHttpStatus)}，/responses {FormatHttpCode(result.ResponsesHttpStatus)}。";
+        return $"HTTP 检查失败：{TranslateProviderStatus(result.Status)}。/responses {FormatHttpCode(result.ResponsesHttpStatus)}。";
     }
 
     private static string BuildCliDashboardSummary(CliCheckResult result)
@@ -1578,15 +1581,17 @@ internal sealed class LauncherForm : Form
             Subtitle = $"{profile.Name} | {profile.Model}",
             Success = result.Ok,
             Summary = result.Ok
-                ? "Provider 对 /models 和最小 /responses 请求都有明确成功返回。"
+                ? "Provider 对当前选中的模型和最小 /responses 请求有明确成功返回。"
                 : TranslateProviderStatus(result.Status),
             Details = RedactSecrets(result.Details ?? "")
         };
+        var endpoint = string.IsNullOrWhiteSpace(result.Endpoint) ? "/responses" : result.Endpoint;
+        var latency = result.LatencyMs.HasValue ? $"{result.LatencyMs.Value} ms" : "无";
         data.Rows.Add(new CheckResultRow("供应商", $"{profile.Name} ({profile.Id})"));
-        data.Rows.Add(new CheckResultRow("Base URL", profile.BaseUrl));
-        data.Rows.Add(new CheckResultRow("/models", FormatHttpCode(result.ModelsHttpStatus)));
+        data.Rows.Add(new CheckResultRow("模型", result.Model ?? profile.Model));
+        data.Rows.Add(new CheckResultRow("Endpoint", endpoint));
         data.Rows.Add(new CheckResultRow("/responses", FormatHttpCode(result.ResponsesHttpStatus)));
-        data.Rows.Add(new CheckResultRow("模型数量", FormatNullable(result.ModelCount)));
+        data.Rows.Add(new CheckResultRow("耗时", latency));
         data.Rows.Add(new CheckResultRow("判定", TranslateProviderStatus(result.Status)));
         return data;
     }
@@ -1623,12 +1628,71 @@ internal sealed class LauncherForm : Form
         dialog.ShowDialog(this);
     }
 
+    private Task RunCheckWithDialogAsync<TResult>(
+        string title,
+        string subtitle,
+        string busyText,
+        string loadingSummary,
+        Func<TResult> action,
+        Func<TResult, CheckResultDialogData> onSuccess)
+    {
+        using var dialog = new CheckResultDialog(title, subtitle, loadingSummary, UiFont, MonoFont);
+
+        isBusy = true;
+        UpdateButtons();
+        SetStatus(busyText, loadingSummary);
+
+        dialog.Shown += async (_, _) =>
+        {
+            try
+            {
+                var result = await Task.Run(action);
+                dialog.SetResult(onSuccess(result));
+            }
+            catch (Exception ex)
+            {
+                var data = BuildCheckExceptionDialogData(title.Replace("进行中", "失败", StringComparison.Ordinal), subtitle, ex);
+                SetStatus(RedactSecrets(ex.Message), data.Summary);
+                dialog.SetResult(data);
+            }
+            finally
+            {
+                isBusy = false;
+                UpdateButtons();
+            }
+        };
+
+        dialog.ShowDialog(this);
+        return Task.CompletedTask;
+    }
+
+    private CheckResultDialogData BuildCheckExceptionDialogData(string title, string subtitle, Exception ex)
+    {
+        var summary = ex is TimeoutException
+            ? "检查超时，Provider 或 CLI 没有在限定时间内返回。"
+            : "检查过程异常，未拿到有效返回。";
+        var data = new CheckResultDialogData
+        {
+            Title = title,
+            Subtitle = subtitle,
+            Success = false,
+            Summary = summary,
+            Details = RedactSecrets(ex.Message)
+        };
+        data.Rows.Add(new CheckResultRow("判定", summary));
+        data.Rows.Add(new CheckResultRow("异常类型", ex.GetType().Name));
+        return data;
+    }
+
     private static string TranslateProviderStatus(string status)
     {
         return status switch
         {
             "passed" => "通过",
             "auth_failed" => "认证失败",
+            "bad_request" => "请求格式或模型不可用",
+            "model_missing" => "未配置模型",
+            "rate_limited" => "请求过于频繁或额度不足",
             "responses_forbidden" => "Responses 路由被拒绝",
             "responses_unsupported" => "不支持 Responses API",
             "provider_unavailable" => "Provider 暂时不可用",
@@ -1774,6 +1838,74 @@ internal sealed class LauncherForm : Form
     }
 }
 
+internal sealed class PulseDotsControl : Control
+{
+    private readonly System.Windows.Forms.Timer timer = new() { Interval = 180 };
+    private int frame;
+
+    public PulseDotsControl()
+    {
+        SetStyle(
+            ControlStyles.UserPaint |
+            ControlStyles.AllPaintingInWmPaint |
+            ControlStyles.OptimizedDoubleBuffer |
+            ControlStyles.ResizeRedraw,
+            true);
+        timer.Tick += (_, _) =>
+        {
+            frame = (frame + 1) % 12;
+            Invalidate();
+        };
+    }
+
+    public void Start()
+    {
+        timer.Start();
+        Invalidate();
+    }
+
+    public void Stop()
+    {
+        timer.Stop();
+        Invalidate();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        e.Graphics.Clear(BackColor);
+
+        const int dotCount = 3;
+        const int gap = 18;
+        var centerY = Height / 2;
+        var totalWidth = 56;
+        var startX = (Width - totalWidth) / 2;
+
+        for (var i = 0; i < dotCount; i++)
+        {
+            var phase = (frame + i * 3) % 12;
+            var active = phase is >= 0 and <= 3;
+            var diameter = active ? 14 : 10;
+            var alpha = active ? 255 : 118;
+            var x = startX + i * (diameter + gap) + (active ? 0 : 2);
+            var y = centerY - diameter / 2;
+            using var brush = new SolidBrush(Color.FromArgb(alpha, 26, 26, 26));
+            e.Graphics.FillEllipse(brush, x, y, diameter, diameter);
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            timer.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
+}
+
 internal sealed class CheckResultDialog : Form
 {
     private readonly Func<float, FontStyle, Font> uiFont;
@@ -1784,13 +1916,15 @@ internal sealed class CheckResultDialog : Form
     private readonly Color fieldColor = Color.FromArgb(250, 250, 250);
     private readonly Color successColor = Color.FromArgb(24, 128, 74);
     private readonly Color errorColor = Color.FromArgb(178, 38, 38);
-    private readonly string copyText;
+    private readonly Color workingColor = Color.FromArgb(26, 26, 26);
+    private string copyText = "";
+    private bool loading;
+    private PulseDotsControl? pulseDots;
 
     public CheckResultDialog(CheckResultDialogData data, Func<float, FontStyle, Font> uiFont, Func<float, Font> monoFont)
     {
         this.uiFont = uiFont;
         this.monoFont = monoFont;
-        copyText = BuildCopyText(data);
 
         Text = data.Title;
         StartPosition = FormStartPosition.CenterParent;
@@ -1806,8 +1940,50 @@ internal sealed class CheckResultDialog : Form
         BuildUi(data);
     }
 
+    public CheckResultDialog(string title, string subtitle, string summary, Func<float, FontStyle, Font> uiFont, Func<float, Font> monoFont)
+    {
+        this.uiFont = uiFont;
+        this.monoFont = monoFont;
+
+        Text = title;
+        StartPosition = FormStartPosition.CenterParent;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = false;
+        MinimizeBox = false;
+        ShowInTaskbar = false;
+        ClientSize = new Size(640, 360);
+        BackColor = Color.White;
+        Font = uiFont(9.0f, FontStyle.Regular);
+        Program.ApplyAppIcon(this);
+
+        BuildLoadingUi(title, subtitle, summary);
+    }
+
+    public void SetResult(CheckResultDialogData data)
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        if (InvokeRequired)
+        {
+            BeginInvoke((Action)(() => SetResult(data)));
+            return;
+        }
+
+        loading = false;
+        pulseDots?.Stop();
+        ClearDialogControls();
+        BuildUi(data);
+    }
+
     private void BuildUi(CheckResultDialogData data)
     {
+        ClientSize = new Size(640, 540);
+        Text = data.Title;
+        copyText = BuildCopyText(data);
+
         var statusColor = data.Success ? successColor : errorColor;
         var statusText = data.Success ? "通过" : "失败";
 
@@ -1884,6 +2060,77 @@ internal sealed class CheckResultDialog : Form
         Controls.Add(closeButton);
         AcceptButton = closeButton;
         CancelButton = closeButton;
+    }
+
+    private void BuildLoadingUi(string title, string subtitle, string summaryText)
+    {
+        loading = true;
+        copyText = "";
+
+        var statusBar = new Panel
+        {
+            Location = new Point(24, 24),
+            Size = new Size(6, 70),
+            BackColor = workingColor
+        };
+        Controls.Add(statusBar);
+
+        Controls.Add(NewLabel(title, 44, 18, 420, 30, 14, FontStyle.Bold, textColor));
+        Controls.Add(NewLabel(subtitle, 44, 50, 420, 24, 9, FontStyle.Regular, mutedColor));
+
+        var badge = NewLabel("进行中", 508, 24, 96, 30, 10, FontStyle.Bold, Color.White);
+        badge.TextAlign = ContentAlignment.MiddleCenter;
+        badge.BackColor = workingColor;
+        Controls.Add(badge);
+
+        var summary = NewLabel(summaryText, 44, 76, 560, 42, 9.5f, FontStyle.Regular, textColor);
+        summary.AutoEllipsis = true;
+        Controls.Add(summary);
+
+        pulseDots = new PulseDotsControl
+        {
+            Location = new Point(258, 146),
+            Size = new Size(124, 44),
+            BackColor = Color.White
+        };
+        pulseDots.Start();
+        Controls.Add(pulseDots);
+
+        Controls.Add(NewLabel("检查已开始。完成后这里会直接显示通过、失败、HTTP 状态码或 CLI 退出码。", 72, 218, 496, 42, 9.5f, FontStyle.Regular, mutedColor));
+
+        var closeButton = NewButton("检查中", 516, 292, 100, 36, primary: true);
+        closeButton.Enabled = false;
+        Controls.Add(closeButton);
+    }
+
+    private void ClearDialogControls()
+    {
+        foreach (var control in Controls.Cast<Control>().ToArray())
+        {
+            Controls.Remove(control);
+            control.Dispose();
+        }
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (loading)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        base.OnFormClosing(e);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            pulseDots?.Dispose();
+        }
+
+        base.Dispose(disposing);
     }
 
     private Label NewLabel(string text, int x, int y, int width, int height, float size, FontStyle style, Color color)
@@ -3044,7 +3291,7 @@ internal sealed class PowerShellBridge
 
     public ProfileTestResult TestProfile(string id)
     {
-        var output = RunModule($"$result = Test-CodexApiProfile -Id {Quote(id)}; ConvertTo-Json -InputObject $result -Depth 8 -Compress");
+        var output = RunModule($"$result = Test-CodexApiProfile -Id {Quote(id)}; ConvertTo-Json -InputObject $result -Depth 8 -Compress", timeoutMilliseconds: 60_000);
         return JsonSerializer.Deserialize<ProfileTestResult>(output.StandardOutput.Trim(), JsonOptions) ?? new ProfileTestResult();
     }
 
@@ -3306,9 +3553,15 @@ internal sealed class ProfileTestResult
 {
     public bool Ok { get; set; }
     public string Status { get; set; } = "";
+    public string? Id { get; set; }
+    public string? BaseUrl { get; set; }
+    public string? Model { get; set; }
+    public string? Endpoint { get; set; }
+    public int? HttpStatus { get; set; }
     public int? ModelsHttpStatus { get; set; }
     public int? ResponsesHttpStatus { get; set; }
     public int? ModelCount { get; set; }
+    public int? LatencyMs { get; set; }
     public string? Details { get; set; }
 }
 

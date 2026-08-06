@@ -2,7 +2,7 @@
 param(
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
-    [string]$Version = "0.4.3",
+    [string]$Version = "0.4.4",
     [string]$DotnetPath,
     [switch]$NoZip
 )

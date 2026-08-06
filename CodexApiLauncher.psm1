@@ -1378,111 +1378,90 @@ function Test-CodexApiProfile {
 
     $profile = Get-CodexApiProfile -Id $Id
     $apiKey = Read-ProfileApiKey -Profile $profile
-    $modelsUrl = Join-ProviderEndpoint -BaseUrl $profile.baseUrl -Suffix "/models"
     $responsesUrl = Join-ProviderEndpoint -BaseUrl $profile.baseUrl -Suffix "/responses"
-
-    $modelsResult = $null
-    $responsesResult = $null
-    $modelCount = $null
-    $details = New-Object System.Collections.Generic.List[string]
-
-    try {
-        $modelsResult = Invoke-ProviderHttp -Method GET -Url $modelsUrl -ApiKey $apiKey -TimeoutSeconds $TimeoutSeconds
-        if ($modelsResult.StatusCode -eq 401 -or $modelsResult.StatusCode -eq 403) {
-            $details.Add("Provider 在 /models 拒绝了这个 API Key。")
-            return [pscustomobject]@{
-                Ok = $false
-                Status = "auth_failed"
-                Id = $profile.id
-                BaseUrl = $profile.baseUrl
-                Model = $profile.model
-                ModelsHttpStatus = $modelsResult.StatusCode
-                ResponsesHttpStatus = $null
-                ModelCount = $null
-                Details = ($details -join " ")
-            }
-        }
-
-        try {
-            $payload = $modelsResult.Body | ConvertFrom-Json
-        if (Test-ObjectPropertyExists -Object $payload -Name "data") {
-            $modelCount = @($payload.data).Count
-        }
-        elseif (Test-ObjectPropertyExists -Object $payload -Name "models") {
-            $modelCount = @($payload.models).Count
-        }
-        }
-        catch {
-            $details.Add("无法将 /models 响应解析为 JSON。")
-        }
-    }
-    catch {
+    $model = [string]$profile.model
+    if ([string]::IsNullOrWhiteSpace($model)) {
         return [pscustomobject]@{
             Ok = $false
-            Status = "unreachable"
+            Status = "model_missing"
             Id = $profile.id
             BaseUrl = $profile.baseUrl
-            Model = $profile.model
+            Model = $model
+            Endpoint = $responsesUrl
+            HttpStatus = $null
             ModelsHttpStatus = $null
             ResponsesHttpStatus = $null
             ModelCount = $null
-            Details = $_.Exception.Message
+            LatencyMs = $null
+            Details = "当前 profile 没有配置模型，无法发起 /responses 探针。"
         }
     }
 
     $body = @{
-        model = $profile.model
-        input = "Respond with ok."
-    } | ConvertTo-Json -Compress
+        model = $model
+        input = "Reply exactly API_OK."
+    } | ConvertTo-Json -Compress -Depth 8
+
+    $started = Get-Date
 
     try {
         $responsesResult = Invoke-ProviderHttp -Method POST -Url $responsesUrl -ApiKey $apiKey -Body $body -TimeoutSeconds $TimeoutSeconds
     }
     catch {
+        $latencyMs = [int](((Get-Date) - $started).TotalMilliseconds)
         return [pscustomobject]@{
             Ok = $false
             Status = "responses_unreachable"
             Id = $profile.id
             BaseUrl = $profile.baseUrl
-            Model = $profile.model
-            ModelsHttpStatus = if ($modelsResult) { $modelsResult.StatusCode } else { $null }
+            Model = $model
+            Endpoint = $responsesUrl
+            HttpStatus = $null
+            ModelsHttpStatus = $null
             ResponsesHttpStatus = $null
-            ModelCount = $modelCount
+            ModelCount = $null
+            LatencyMs = $latencyMs
             Details = $_.Exception.Message
         }
     }
 
+    $latencyMs = [int](((Get-Date) - $started).TotalMilliseconds)
     if ($responsesResult.IsSuccessStatusCode) {
         return [pscustomobject]@{
             Ok = $true
             Status = "passed"
             Id = $profile.id
             BaseUrl = $profile.baseUrl
-            Model = $profile.model
-            ModelsHttpStatus = $modelsResult.StatusCode
+            Model = $model
+            Endpoint = $responsesUrl
+            HttpStatus = $responsesResult.StatusCode
+            ModelsHttpStatus = $null
             ResponsesHttpStatus = $responsesResult.StatusCode
-            ModelCount = $modelCount
-            Details = "Provider 接受了最小 /responses 请求。"
+            ModelCount = $null
+            LatencyMs = $latencyMs
+            Details = "Provider 接受了当前模型的最小 /responses 请求。"
         }
     }
 
-    $status = "responses_failed"
-    if ($responsesResult.StatusCode -eq 401) {
-        $status = "auth_failed"
-    }
-    elseif ($responsesResult.StatusCode -eq 403) {
-        $status = if ($modelsResult.StatusCode -ge 200 -and $modelsResult.StatusCode -lt 300) { "responses_forbidden" } else { "auth_failed" }
-    }
-    elseif ($responsesResult.StatusCode -eq 404 -or $responsesResult.StatusCode -eq 405) {
-        $status = "responses_unsupported"
-    }
-    elseif ($responsesResult.StatusCode -eq 502 -or $responsesResult.StatusCode -eq 503 -or $responsesResult.StatusCode -eq 504) {
-        $status = "provider_unavailable"
+    $status = switch ($responsesResult.StatusCode) {
+        400 { "bad_request"; break }
+        401 { "auth_failed"; break }
+        403 { "responses_forbidden"; break }
+        404 { "responses_unsupported"; break }
+        405 { "responses_unsupported"; break }
+        429 { "rate_limited"; break }
+        502 { "provider_unavailable"; break }
+        503 { "provider_unavailable"; break }
+        504 { "provider_unavailable"; break }
+        default { "responses_failed" }
     }
 
     $responseBody = $responsesResult.Body
     if ($responseBody -and $responseBody.Length -gt 800) {
         $responseBody = $responseBody.Substring(0, 800)
+    }
+    if ([string]::IsNullOrWhiteSpace($responseBody)) {
+        $responseBody = "响应体为空。"
     }
 
     [pscustomobject]@{
@@ -1490,11 +1469,14 @@ function Test-CodexApiProfile {
         Status = $status
         Id = $profile.id
         BaseUrl = $profile.baseUrl
-        Model = $profile.model
-        ModelsHttpStatus = $modelsResult.StatusCode
+        Model = $model
+        Endpoint = $responsesUrl
+        HttpStatus = $responsesResult.StatusCode
+        ModelsHttpStatus = $null
         ResponsesHttpStatus = $responsesResult.StatusCode
-        ModelCount = $modelCount
-        Details = $responseBody
+        ModelCount = $null
+        LatencyMs = $latencyMs
+        Details = "POST /responses returned HTTP $($responsesResult.StatusCode). $responseBody"
     }
 }
 
