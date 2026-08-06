@@ -48,6 +48,7 @@ UI 支持：
 - 打开共享 `CODEX_HOME` 或当前 profile overlay
 - 运行 HTTP 连通性检查
 - 运行真实 Codex CLI 检查，适合只允许 CLI 请求形态的中转网关
+- 检查完成后用结构化结果窗展示通过/失败、HTTP 状态码、CLI 退出码和错误摘要
 
 ## 构建桌面端 exe
 
@@ -60,8 +61,8 @@ UI 支持：
 默认会生成：
 
 ```text
-dist\CodexApiLauncherDesktop-0.4.1-win-x64\CodexApiLauncher.exe
-dist\CodexApiLauncherDesktop-0.4.1-win-x64.zip
+dist\CodexApiLauncherDesktop-0.4.3-win-x64\CodexApiLauncher.exe
+dist\CodexApiLauncherDesktop-0.4.3-win-x64.zip
 ```
 
 发布包是 self-contained win-x64 构建，不需要目标机器额外安装 .NET 运行时。运行时仍会调用同目录的 PowerShell 模块，以复用已有的 profile、API Key 加密存储、共享 `CODEX_HOME` 和 overlay 配置逻辑。默认启动优先走 Windows Terminal，减少传统 PowerShell 黑窗口。

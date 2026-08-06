@@ -110,13 +110,11 @@ internal sealed class LauncherForm : Form
     private Button saveProjectButton = null!;
     private Button clearProjectButton = null!;
     private Button homeButton = null!;
-    private Button copyOutputButton = null!;
-    private Button clearOutputButton = null!;
     private Panel topBarPanel = null!;
     private Label appTitleLabel = null!;
     private Label outputTitleLabel = null!;
     private Label outputMetaLabel = null!;
-    private RichTextBox statusText = null!;
+    private Label dashboardStatusLabel = null!;
     private RichTextBox logsText = null!;
     private Label configSummaryLabel = null!;
     private Label settingsSummaryLabel = null!;
@@ -132,6 +130,7 @@ internal sealed class LauncherForm : Form
     private bool isBusy;
     private LauncherPage activePage = LauncherPage.Dashboard;
     private ProfileInfo? activeProfile;
+    private string lastOutputText = "";
 
     public LauncherForm()
     {
@@ -332,44 +331,27 @@ internal sealed class LauncherForm : Form
         startButton.Click += async (_, _) => await StartCodexAsync();
         rightPanel.Controls.Add(startButton);
 
-        cliCheckButton = NewButton("CLI 检查", 190, 462, 104, 34);
+        cliCheckButton = NewButton("CLI 检查", 190, 458, 156, 40, primary: true);
+        cliCheckButton.Font = UiFont(10.5f, FontStyle.Bold);
         cliCheckButton.Click += async (_, _) => await RunCliCheckAsync();
         rightPanel.Controls.Add(cliCheckButton);
 
-        httpTestButton = NewButton("HTTP 检查", 312, 462, 108, 34);
+        httpTestButton = NewButton("HTTP 检查", 364, 458, 156, 40, primary: true);
+        httpTestButton.Font = UiFont(10.5f, FontStyle.Bold);
         httpTestButton.Click += async (_, _) => await RunHttpTestAsync();
         rightPanel.Controls.Add(httpTestButton);
 
-        outputTitleLabel = NewLabel("运行输出", 16, 520, 140, 26, 11, FontStyle.Bold);
+        outputTitleLabel = NewLabel("最近状态", 16, 528, 140, 26, 11, FontStyle.Bold);
         rightPanel.Controls.Add(outputTitleLabel);
 
-        outputMetaLabel = NewLabel("空闲", 108, 522, 160, 24, 9, FontStyle.Regular, mutedColor);
+        outputMetaLabel = NewLabel("空闲", 108, 530, 160, 24, 9, FontStyle.Regular, mutedColor);
         rightPanel.Controls.Add(outputMetaLabel);
 
-        copyOutputButton = NewButton("复制输出", 548, 516, 112, 32);
-        copyOutputButton.Click += (_, _) => CopyOutput();
-        copyOutputButton.Enabled = false;
-        rightPanel.Controls.Add(copyOutputButton);
-
-        clearOutputButton = NewButton("清空", 672, 516, 100, 32);
-        clearOutputButton.Click += (_, _) => ClearOutput();
-        rightPanel.Controls.Add(clearOutputButton);
-
-        statusText = new RichTextBox
-        {
-            Location = new Point(16, 556),
-            Size = new Size(772, 152),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
-            ReadOnly = true,
-            ScrollBars = RichTextBoxScrollBars.Vertical,
-            Font = MonoFont(9.5f),
-            BackColor = outputBackColor,
-            ForeColor = outputTextColor,
-            BorderStyle = BorderStyle.FixedSingle,
-            DetectUrls = false,
-            WordWrap = false
-        };
-        rightPanel.Controls.Add(statusText);
+        dashboardStatusLabel = NewLabel("准备就绪。", 16, 566, 772, 56, 9.5f, FontStyle.Regular, textColor);
+        dashboardStatusLabel.BorderStyle = BorderStyle.FixedSingle;
+        dashboardStatusLabel.Padding = new Padding(12, 8, 12, 8);
+        dashboardStatusLabel.BackColor = fieldColor;
+        rightPanel.Controls.Add(dashboardStatusLabel);
         rightPanel.Resize += (_, _) => LayoutDashboardPage();
         LayoutDashboardPage();
 
@@ -586,9 +568,7 @@ internal sealed class LauncherForm : Form
             browseWorkspaceButton is null ||
             saveProjectButton is null ||
             clearProjectButton is null ||
-            copyOutputButton is null ||
-            clearOutputButton is null ||
-            statusText is null)
+            dashboardStatusLabel is null)
         {
             return;
         }
@@ -606,8 +586,6 @@ internal sealed class LauncherForm : Form
         browseWorkspaceButton.Left = right - browseWorkspaceButton.Width;
         clearProjectButton.Left = right - clearProjectButton.Width;
         saveProjectButton.Left = clearProjectButton.Left - gap - saveProjectButton.Width;
-        clearOutputButton.Left = right - clearOutputButton.Width;
-        copyOutputButton.Left = clearOutputButton.Left - gap - copyOutputButton.Width;
 
         providerNameBox.Width = Math.Max(320, right - providerNameBox.Left);
         providerIdBox.Width = Math.Max(320, right - providerIdBox.Left);
@@ -616,8 +594,7 @@ internal sealed class LauncherForm : Form
         providerModelBox.Width = Math.Max(220, fetchModelsButton.Left - gap - fieldLeft);
         providerCodexHomeBox.Width = Math.Max(220, migrateHomeButton.Left - gap - fieldLeft);
         workspaceBox.Width = Math.Max(320, browseWorkspaceButton.Left - gap - left);
-        statusText.Width = Math.Max(480, right - statusText.Left);
-        statusText.Height = Math.Max(120, dashboardPage.ClientSize.Height - statusText.Top - 24);
+        dashboardStatusLabel.Width = Math.Max(480, right - dashboardStatusLabel.Left);
     }
 
     private Panel BuildLogsPage()
@@ -1428,24 +1405,35 @@ internal sealed class LauncherForm : Form
     {
         var profile = RequireProfile();
         var (workspace, usedFallback) = ResolveCliCheckWorkspace();
+        CliCheckResult? result = null;
         await RunUiActionAsync("正在运行真实 Codex CLI 检查...", () =>
         {
-            var result = bridge.RunCliCheck(profile.Id, workspace);
-            var message = usedFallback
-                ? $"未选择项目文件夹，已使用检查目录：{workspace}{Environment.NewLine}{Environment.NewLine}{result}"
-                : result;
-            BeginInvoke((Action)(() => SetStatus(message)));
+            result = bridge.RunCliCheck(profile.Id, workspace, usedFallback);
         }, timeoutMilliseconds: 240_000);
+
+        if (result is not null)
+        {
+            var details = FormatCliResult(result);
+            SetStatus(details, BuildCliDashboardSummary(result));
+            ShowCheckResultDialog(BuildCliCheckDialogData(profile, result));
+        }
     }
 
     private async Task RunHttpTestAsync()
     {
         var profile = RequireProfile();
+        ProfileTestResult? result = null;
         await RunUiActionAsync("正在运行 HTTP 连通性检查...", () =>
         {
-            var result = bridge.TestProfile(profile.Id);
-            BeginInvoke((Action)(() => SetStatus(FormatHttpResult(result))));
+            result = bridge.TestProfile(profile.Id);
         }, timeoutMilliseconds: 60_000);
+
+        if (result is not null)
+        {
+            var details = FormatHttpResult(result, profile);
+            SetStatus(details, BuildHttpDashboardSummary(result));
+            ShowCheckResultDialog(BuildHttpCheckDialogData(profile, result));
+        }
     }
 
     private ProfileInfo RequireProfile()
@@ -1523,18 +1511,116 @@ internal sealed class LauncherForm : Form
         }
     }
 
-    private string FormatHttpResult(ProfileTestResult result)
+    private string FormatHttpResult(ProfileTestResult result, ProfileInfo profile)
     {
-        return string.Join(Environment.NewLine, new[]
+        return RedactSecrets(string.Join(Environment.NewLine, new[]
         {
             "HTTP 连通性检查",
+            $"供应商: {profile.Name} ({profile.Id})",
+            $"Base URL: {profile.BaseUrl}",
+            $"模型: {profile.Model}",
             $"状态: {TranslateProviderStatus(result.Status)}",
             $"是否通过: {result.Ok}",
-            $"/models HTTP: {result.ModelsHttpStatus?.ToString() ?? ""}",
-            $"/responses HTTP: {result.ResponsesHttpStatus?.ToString() ?? ""}",
-            $"模型数量: {result.ModelCount?.ToString() ?? ""}",
+            $"/models HTTP: {FormatHttpCode(result.ModelsHttpStatus)}",
+            $"/responses HTTP: {FormatHttpCode(result.ResponsesHttpStatus)}",
+            $"模型数量: {FormatNullable(result.ModelCount)}",
             $"详情: {result.Details ?? ""}"
-        });
+        }));
+    }
+
+    private string FormatCliResult(CliCheckResult result)
+    {
+        var output = string.IsNullOrWhiteSpace(result.StandardOutput) ? "无" : TrimForUi(result.StandardOutput, 1600);
+        var error = string.IsNullOrWhiteSpace(result.StandardError) ? "无" : TrimForUi(result.StandardError, 1000);
+        return RedactSecrets(string.Join(Environment.NewLine, new[]
+        {
+            "CLI 检查",
+            $"供应商: {result.Id}",
+            $"工作目录: {result.Workspace}",
+            $"使用临时检查目录: {result.UsedFallback}",
+            $"退出码: {result.ExitCode}",
+            $"收到预期返回 CLI_OK: {result.FoundExpectedReply}",
+            $"是否通过: {result.Ok}",
+            "标准输出:",
+            output,
+            "",
+            "标准错误:",
+            error
+        }));
+    }
+
+    private static string BuildHttpDashboardSummary(ProfileTestResult result)
+    {
+        if (result.Ok)
+        {
+            return $"HTTP 检查通过。/models {FormatHttpCode(result.ModelsHttpStatus)}，/responses {FormatHttpCode(result.ResponsesHttpStatus)}。";
+        }
+
+        return $"HTTP 检查失败：{TranslateProviderStatus(result.Status)}。/models {FormatHttpCode(result.ModelsHttpStatus)}，/responses {FormatHttpCode(result.ResponsesHttpStatus)}。";
+    }
+
+    private static string BuildCliDashboardSummary(CliCheckResult result)
+    {
+        if (result.Ok)
+        {
+            return $"CLI 检查通过。退出码 {result.ExitCode}，已收到 CLI_OK。";
+        }
+
+        var reason = result.FoundExpectedReply ? "命令退出码非 0" : "未收到 CLI_OK";
+        return $"CLI 检查失败：{reason}。退出码 {result.ExitCode}。";
+    }
+
+    private CheckResultDialogData BuildHttpCheckDialogData(ProfileInfo profile, ProfileTestResult result)
+    {
+        var data = new CheckResultDialogData
+        {
+            Title = result.Ok ? "HTTP 检查通过" : "HTTP 检查失败",
+            Subtitle = $"{profile.Name} | {profile.Model}",
+            Success = result.Ok,
+            Summary = result.Ok
+                ? "Provider 对 /models 和最小 /responses 请求都有明确成功返回。"
+                : TranslateProviderStatus(result.Status),
+            Details = RedactSecrets(result.Details ?? "")
+        };
+        data.Rows.Add(new CheckResultRow("供应商", $"{profile.Name} ({profile.Id})"));
+        data.Rows.Add(new CheckResultRow("Base URL", profile.BaseUrl));
+        data.Rows.Add(new CheckResultRow("/models", FormatHttpCode(result.ModelsHttpStatus)));
+        data.Rows.Add(new CheckResultRow("/responses", FormatHttpCode(result.ResponsesHttpStatus)));
+        data.Rows.Add(new CheckResultRow("模型数量", FormatNullable(result.ModelCount)));
+        data.Rows.Add(new CheckResultRow("判定", TranslateProviderStatus(result.Status)));
+        return data;
+    }
+
+    private CheckResultDialogData BuildCliCheckDialogData(ProfileInfo profile, CliCheckResult result)
+    {
+        var data = new CheckResultDialogData
+        {
+            Title = result.Ok ? "CLI 检查通过" : "CLI 检查失败",
+            Subtitle = $"{profile.Name} | {profile.Model}",
+            Success = result.Ok,
+            Summary = result.Ok
+                ? "Codex CLI 完成请求，并返回了预期的 CLI_OK。"
+                : result.FailureReason,
+            Details = RedactSecrets(string.Join(Environment.NewLine, new[]
+            {
+                string.IsNullOrWhiteSpace(result.StandardOutput) ? "" : "标准输出:",
+                TrimForUi(result.StandardOutput, 1400),
+                string.IsNullOrWhiteSpace(result.StandardError) ? "" : "标准错误:",
+                TrimForUi(result.StandardError, 900)
+            }).Trim())
+        };
+        data.Rows.Add(new CheckResultRow("供应商", $"{profile.Name} ({profile.Id})"));
+        data.Rows.Add(new CheckResultRow("工作目录", result.Workspace));
+        data.Rows.Add(new CheckResultRow("退出码", result.ExitCode.ToString()));
+        data.Rows.Add(new CheckResultRow("预期返回", result.FoundExpectedReply ? "已收到 CLI_OK" : "未收到 CLI_OK"));
+        data.Rows.Add(new CheckResultRow("临时目录", result.UsedFallback ? "已使用" : "未使用"));
+        return data;
+    }
+
+    private void ShowCheckResultDialog(CheckResultDialogData data)
+    {
+        using var dialog = new CheckResultDialog(data, UiFont, MonoFont);
+        dialog.ShowDialog(this);
     }
 
     private static string TranslateProviderStatus(string status)
@@ -1553,43 +1639,82 @@ internal sealed class LauncherForm : Form
         };
     }
 
-    private void SetStatus(string text)
+    private static string FormatHttpCode(int? statusCode)
     {
+        return statusCode.HasValue ? statusCode.Value.ToString() : "无返回";
+    }
+
+    private static string FormatNullable(int? value)
+    {
+        return value.HasValue ? value.Value.ToString() : "未解析";
+    }
+
+    private static string TrimForUi(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "";
+        }
+
+        var text = value.Trim();
+        return text.Length <= maxLength ? text : text[..maxLength] + "...";
+    }
+
+    private static string RedactSecrets(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "";
+        }
+
+        var redacted = Regex.Replace(value, @"sk-[A-Za-z0-9_-]{8,}", "sk-***");
+        return Regex.Replace(redacted, @"Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer ***", RegexOptions.IgnoreCase);
+    }
+
+    private static string CompactStatusText(string text)
+    {
+        var compact = Regex.Replace(text ?? "", @"\s+", " ").Trim();
+        if (compact.Length == 0)
+        {
+            return "准备就绪。";
+        }
+
+        return compact.Length <= 220 ? compact : compact[..220] + "...";
+    }
+
+    private void SetStatus(string text, string? dashboardText = null)
+    {
+        lastOutputText = RedactSecrets(text);
         outputMetaLabel.Text = DateTime.Now.ToString("HH:mm:ss");
-        statusText.Clear();
-        statusText.SelectionColor = outputTextColor;
-        statusText.AppendText(text);
-        statusText.SelectionStart = 0;
-        statusText.ScrollToCaret();
+        dashboardStatusLabel.Text = CompactStatusText(dashboardText ?? lastOutputText);
         if (logsText is not null)
         {
             logsText.Clear();
             logsText.SelectionColor = outputTextColor;
-            logsText.AppendText(text);
+            logsText.AppendText(lastOutputText);
             logsText.SelectionStart = 0;
             logsText.ScrollToCaret();
         }
-        copyOutputButton.Enabled = !string.IsNullOrWhiteSpace(text);
     }
 
     private void CopyOutput()
     {
-        if (string.IsNullOrWhiteSpace(statusText.Text))
+        if (string.IsNullOrWhiteSpace(lastOutputText))
         {
             outputMetaLabel.Text = "没有可复制的输出";
             return;
         }
 
-        Clipboard.SetText(statusText.Text);
+        Clipboard.SetText(lastOutputText);
         outputMetaLabel.Text = $"已复制 {DateTime.Now:HH:mm:ss}";
     }
 
     private void ClearOutput()
     {
-        statusText.Clear();
+        lastOutputText = "";
+        dashboardStatusLabel.Text = "准备就绪。";
         logsText?.Clear();
         outputMetaLabel.Text = "空闲";
-        copyOutputButton.Enabled = false;
     }
 
     private void OpenFolder(string? path)
@@ -1646,6 +1771,178 @@ internal sealed class LauncherForm : Form
             FileName = url,
             UseShellExecute = true
         });
+    }
+}
+
+internal sealed class CheckResultDialog : Form
+{
+    private readonly Func<float, FontStyle, Font> uiFont;
+    private readonly Func<float, Font> monoFont;
+    private readonly Color textColor = Color.FromArgb(26, 26, 26);
+    private readonly Color mutedColor = Color.FromArgb(77, 77, 77);
+    private readonly Color borderColor = Color.FromArgb(204, 204, 204);
+    private readonly Color fieldColor = Color.FromArgb(250, 250, 250);
+    private readonly Color successColor = Color.FromArgb(24, 128, 74);
+    private readonly Color errorColor = Color.FromArgb(178, 38, 38);
+    private readonly string copyText;
+
+    public CheckResultDialog(CheckResultDialogData data, Func<float, FontStyle, Font> uiFont, Func<float, Font> monoFont)
+    {
+        this.uiFont = uiFont;
+        this.monoFont = monoFont;
+        copyText = BuildCopyText(data);
+
+        Text = data.Title;
+        StartPosition = FormStartPosition.CenterParent;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = false;
+        MinimizeBox = false;
+        ShowInTaskbar = false;
+        ClientSize = new Size(640, 540);
+        BackColor = Color.White;
+        Font = uiFont(9.0f, FontStyle.Regular);
+        Program.ApplyAppIcon(this);
+
+        BuildUi(data);
+    }
+
+    private void BuildUi(CheckResultDialogData data)
+    {
+        var statusColor = data.Success ? successColor : errorColor;
+        var statusText = data.Success ? "通过" : "失败";
+
+        var statusBar = new Panel
+        {
+            Location = new Point(24, 24),
+            Size = new Size(6, 70),
+            BackColor = statusColor
+        };
+        Controls.Add(statusBar);
+
+        Controls.Add(NewLabel(data.Title, 44, 18, 420, 30, 14, FontStyle.Bold, textColor));
+        Controls.Add(NewLabel(data.Subtitle, 44, 50, 420, 24, 9, FontStyle.Regular, mutedColor));
+
+        var badge = NewLabel(statusText, 524, 24, 80, 30, 10, FontStyle.Bold, Color.White);
+        badge.TextAlign = ContentAlignment.MiddleCenter;
+        badge.BackColor = statusColor;
+        Controls.Add(badge);
+
+        var summary = NewLabel(data.Summary, 44, 76, 560, 42, 9.5f, FontStyle.Regular, textColor);
+        summary.AutoEllipsis = true;
+        Controls.Add(summary);
+
+        var rowsPanel = new TableLayoutPanel
+        {
+            Location = new Point(24, 136),
+            Size = new Size(592, 190),
+            ColumnCount = 2,
+            RowCount = Math.Max(1, data.Rows.Count),
+            BackColor = Color.White,
+            AutoScroll = true,
+            CellBorderStyle = TableLayoutPanelCellBorderStyle.Single
+        };
+        rowsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 126));
+        rowsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        foreach (var _ in data.Rows)
+        {
+            rowsPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        }
+
+        var rowIndex = 0;
+        foreach (var row in data.Rows)
+        {
+            rowsPanel.Controls.Add(NewTableCell(row.Label, mutedColor, FontStyle.Bold), 0, rowIndex);
+            rowsPanel.Controls.Add(NewTableCell(row.Value, textColor, FontStyle.Regular), 1, rowIndex);
+            rowIndex++;
+        }
+        Controls.Add(rowsPanel);
+
+        Controls.Add(NewLabel("详情", 24, 344, 120, 24, 10, FontStyle.Bold, textColor));
+        var detailsText = string.IsNullOrWhiteSpace(data.Details) ? "无额外详情。" : data.Details;
+        var detailsBox = new TextBox
+        {
+            Location = new Point(24, 374),
+            Size = new Size(592, 94),
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            WordWrap = true,
+            Text = detailsText,
+            Font = monoFont(8.8f),
+            BackColor = fieldColor,
+            ForeColor = textColor,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        Controls.Add(detailsBox);
+
+        var copyButton = NewButton("复制详情", 398, 488, 100, 36);
+        copyButton.Click += (_, _) => Clipboard.SetText(copyText);
+        Controls.Add(copyButton);
+
+        var closeButton = NewButton("关闭", 516, 488, 100, 36, primary: true);
+        closeButton.Click += (_, _) => Close();
+        Controls.Add(closeButton);
+        AcceptButton = closeButton;
+        CancelButton = closeButton;
+    }
+
+    private Label NewLabel(string text, int x, int y, int width, int height, float size, FontStyle style, Color color)
+    {
+        return new Label
+        {
+            Text = text,
+            Location = new Point(x, y),
+            Size = new Size(width, height),
+            AutoEllipsis = true,
+            Font = uiFont(size, style),
+            ForeColor = color,
+            BackColor = Color.Transparent
+        };
+    }
+
+    private Label NewTableCell(string text, Color color, FontStyle style)
+    {
+        return new Label
+        {
+            Text = text,
+            Dock = DockStyle.Fill,
+            Padding = new Padding(10, 6, 10, 0),
+            AutoEllipsis = true,
+            Font = uiFont(8.8f, style),
+            ForeColor = color,
+            BackColor = Color.White
+        };
+    }
+
+    private Button NewButton(string text, int x, int y, int width, int height, bool primary = false)
+    {
+        return new LauncherButton
+        {
+            Text = text,
+            Location = new Point(x, y),
+            Size = new Size(width, height),
+            Font = uiFont(9.0f, primary ? FontStyle.Bold : FontStyle.Regular),
+            IsPrimary = primary
+        };
+    }
+
+    private static string BuildCopyText(CheckResultDialogData data)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine(data.Title);
+        builder.AppendLine(data.Success ? "结果: 通过" : "结果: 失败");
+        builder.AppendLine($"摘要: {data.Summary}");
+        foreach (var row in data.Rows)
+        {
+            builder.AppendLine($"{row.Label}: {row.Value}");
+        }
+        if (!string.IsNullOrWhiteSpace(data.Details))
+        {
+            builder.AppendLine();
+            builder.AppendLine("详情:");
+            builder.AppendLine(data.Details);
+        }
+        return builder.ToString().Trim();
     }
 }
 
@@ -2769,20 +3066,31 @@ internal sealed class PowerShellBridge
         return JsonSerializer.Deserialize<List<string>>(json, JsonOptions) ?? new List<string>();
     }
 
-    public string RunCliCheck(string id, string workspace)
+    public CliCheckResult RunCliCheck(string id, string workspace, bool usedFallback)
     {
         var command = "Start-CodexApiProfile -Id " + Quote(id) + " -Workspace " + Quote(workspace) +
             " -InCurrentWindow -CodexArgs @('exec','--skip-git-repo-check','Reply exactly CLI_OK'); exit $global:LASTEXITCODE";
         var output = RunModule(command, throwOnNonZero: false, timeoutMilliseconds: 240_000);
-        return string.Join(Environment.NewLine, new[]
+        var foundExpectedReply = output.StandardOutput.Contains("CLI_OK", StringComparison.OrdinalIgnoreCase);
+        var ok = output.ExitCode == 0 && foundExpectedReply;
+        var failureReason = ok
+            ? ""
+            : output.ExitCode != 0
+                ? $"Codex CLI 退出码为 {output.ExitCode}。"
+                : "Codex CLI 已退出，但没有收到预期的 CLI_OK。";
+
+        return new CliCheckResult
         {
-            $"CLI 检查退出码: {output.ExitCode}",
-            "标准输出:",
-            TrimForDisplay(output.StandardOutput, 1600),
-            "",
-            "标准错误:",
-            TrimForDisplay(output.StandardError, 1000)
-        });
+            Id = id,
+            Workspace = workspace,
+            UsedFallback = usedFallback,
+            ExitCode = output.ExitCode,
+            FoundExpectedReply = foundExpectedReply,
+            Ok = ok,
+            FailureReason = failureReason,
+            StandardOutput = TrimForDisplay(output.StandardOutput, 3000),
+            StandardError = TrimForDisplay(output.StandardError, 1600)
+        };
     }
 
     public string GetLaunchersDir()
@@ -2928,6 +3236,18 @@ internal sealed class PowerShellBridge
 
 internal sealed record PowerShellOutput(int ExitCode, string StandardOutput, string StandardError);
 
+internal sealed class CheckResultDialogData
+{
+    public string Title { get; set; } = "";
+    public string Subtitle { get; set; } = "";
+    public bool Success { get; set; }
+    public string Summary { get; set; } = "";
+    public string Details { get; set; } = "";
+    public List<CheckResultRow> Rows { get; } = new();
+}
+
+internal sealed record CheckResultRow(string Label, string Value);
+
 internal sealed class ProfileDraft
 {
     public string OriginalId { get; set; } = "";
@@ -2990,6 +3310,19 @@ internal sealed class ProfileTestResult
     public int? ResponsesHttpStatus { get; set; }
     public int? ModelCount { get; set; }
     public string? Details { get; set; }
+}
+
+internal sealed class CliCheckResult
+{
+    public string Id { get; set; } = "";
+    public string Workspace { get; set; } = "";
+    public bool UsedFallback { get; set; }
+    public int ExitCode { get; set; }
+    public bool FoundExpectedReply { get; set; }
+    public bool Ok { get; set; }
+    public string FailureReason { get; set; } = "";
+    public string StandardOutput { get; set; } = "";
+    public string StandardError { get; set; } = "";
 }
 
 internal sealed class LauncherSettings
