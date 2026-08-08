@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- 新增进程内快速 Responses 探针：复用 `HttpClient`，使用当前选定模型，不再把 `/models` 作为检查前置条件。
+- “快速 CLI 检查”发送 Codex CLI 的 User-Agent、`originator`、`x-codex-*` 指纹和流式 Responses 请求，可识别只接受 CLI 请求形态的中转站。
+- 检查在收到响应头或首个有效 SSE 事件后更新阶段；结果窗支持取消，并显示 HTTP 状态码、首事件、耗时和结构化错误分类。
+- 保留“完整 CLI 诊断”作为真实 `codex exec` 慢路径；快速检查不会创建 Codex session、SQLite 记录、测试工作目录或额外日志文件。
+- Provider 错误详情统一脱敏 Bearer token、`sk-...` 和当前 profile API Key；桌面版本、PowerShell 模块和构建脚本统一升级到 `0.5.0`。
+
 ## 0.4.4
 
 - `CLI 检查` 和 `HTTP 检查` 改为点击后立即打开检查窗，窗口内用三点脉冲动画显示进行中状态，完成后原地更新结果。

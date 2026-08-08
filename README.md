@@ -46,9 +46,10 @@ UI 支持：
 - 在新的终端窗口里启动隔离的 Codex CLI
 - 可选保存或清除某个配置的默认项目文件夹
 - 打开共享 `CODEX_HOME` 或当前 profile overlay
-- 运行 HTTP 连通性检查，立即弹出检查窗，并用当前选中的模型直接请求 `/responses`
-- 运行真实 Codex CLI 检查，适合只允许 CLI 请求形态的中转网关
-- 检查窗先显示三点脉冲加载态，完成后展示通过/失败、HTTP 状态码、CLI 退出码和错误摘要
+- 运行“快速 CLI 检查”，立即弹出检查窗，用当前选中的模型发送带 Codex CLI 身份的 `/responses` 探针，适合只允许 CLI 请求形态的中转网关
+- 运行“HTTP 检查”，用当前选中的模型发送标准 HTTP `/responses` 探针，用于对照网关是否要求 CLI 身份
+- 检查窗先显示可取消的三点脉冲加载态，完成后展示通过/失败、HTTP 状态码、首事件、耗时和错误摘要
+- 需要完整会话级验证时使用“完整 CLI 诊断”；它才会启动真实 `codex exec`，速度较慢并会产生正常 Codex 会话记录
 
 ## 构建桌面端 exe
 
@@ -61,8 +62,8 @@ UI 支持：
 默认会生成：
 
 ```text
-dist\CodexApiLauncherDesktop-0.4.4-win-x64\CodexApiLauncher.exe
-dist\CodexApiLauncherDesktop-0.4.4-win-x64.zip
+dist\CodexApiLauncherDesktop-0.5.0-win-x64\CodexApiLauncher.exe
+dist\CodexApiLauncherDesktop-0.5.0-win-x64.zip
 ```
 
 发布包是 self-contained win-x64 构建，不需要目标机器额外安装 .NET 运行时。运行时仍会调用同目录的 PowerShell 模块，以复用已有的 profile、API Key 加密存储、共享 `CODEX_HOME` 和 overlay 配置逻辑。默认启动优先走 Windows Terminal，减少传统 PowerShell 黑窗口。
@@ -169,9 +170,11 @@ Test-CodexApiProfile -Id "shuaiapi"
 
 - `POST <base_url>/responses`
 
-它不会再把 `/models` 作为 HTTP 检查前置条件。需要刷新模型下拉列表时，桌面端的“获取模型”按钮仍会单独请求 `/models`。
+它不会再把 `/models` 作为检查前置条件。需要刷新模型下拉列表时，桌面端的“获取模型”按钮仍会单独请求 `/models`。
 
-如果你的中转只支持 Codex CLI 请求形态，优先在 UI 里用“CLI 检查”，或运行：
+桌面端的快速检查直接在应用进程内发送请求，不经过 PowerShell，也不创建 Codex session、SQLite state DB、测试工作目录或检查日志；收到响应头后会更新阶段，收到首个有效输出事件后即可判定通过。点击“取消检查”会中止当前网络请求。
+
+如果你的中转只支持 Codex CLI 请求形态，优先在 UI 里用“快速 CLI 检查”。需要验证完整 CLI 会话时再运行：
 
 ```powershell
 Start-CodexApiProfile -Id "shuaiapi" -InCurrentWindow -CodexArgs @("exec", "--skip-git-repo-check", "Reply with OK")
