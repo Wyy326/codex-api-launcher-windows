@@ -1,7 +1,9 @@
 Set-StrictMode -Version 2.0
 
-$script:LauncherVersion = "0.5.0"
-$script:StateSchemaVersion = 2
+$script:LauncherVersion = "0.6.0"
+$script:StateSchemaVersion = 3
+$script:DefaultProviderId = "api_codex_launcher"
+$script:DefaultProviderName = "Codex API Launcher"
 
 function Get-CodexApiLauncherRoot {
     [CmdletBinding()]
@@ -144,6 +146,9 @@ function New-EmptyState {
         launcherVersion = $script:LauncherVersion
         settings = [pscustomobject][ordered]@{
             sharedCodexHome = Get-DefaultSharedCodexHome
+            providerId = $script:DefaultProviderId
+            providerName = $script:DefaultProviderName
+            legacyProviderIds = @()
         }
         profiles = @()
     }
@@ -258,8 +263,11 @@ function Normalize-State {
 
     $statePath = Get-StatePath
     $oldVersion = Get-ObjectPropertyValue -Object $State -Name "version" -DefaultValue 1
+    $settings = Get-ObjectPropertyValue -Object $State -Name "settings" -DefaultValue $null
     $needsMigration = ([int]$oldVersion -lt $script:StateSchemaVersion) -or
-        (-not (Get-ObjectPropertyValue -Object $State -Name "settings" -DefaultValue $null))
+        ($null -eq $settings) -or
+        (-not (Get-ObjectPropertyValue -Object $settings -Name "providerId" -DefaultValue "")) -or
+        (-not (Get-ObjectPropertyValue -Object $settings -Name "providerName" -DefaultValue ""))
 
     if ($needsMigration -and $PersistMigration -and (Test-Path -LiteralPath $statePath)) {
         $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -269,7 +277,6 @@ function Normalize-State {
     Set-ObjectPropertyValue -Object $State -Name "version" -Value $script:StateSchemaVersion
     Set-ObjectPropertyValue -Object $State -Name "launcherVersion" -Value $script:LauncherVersion
 
-    $settings = Get-ObjectPropertyValue -Object $State -Name "settings" -DefaultValue $null
     if ($null -eq $settings) {
         $settings = [pscustomobject][ordered]@{}
         Set-ObjectPropertyValue -Object $State -Name "settings" -Value $settings
@@ -277,6 +284,26 @@ function Normalize-State {
 
     $sharedCodexHome = Get-SharedCodexHomeFromState -State $State
     Set-ObjectPropertyValue -Object $settings -Name "sharedCodexHome" -Value $sharedCodexHome
+
+    $providerIdentity = Get-CanonicalProviderIdentity -State $State
+    Set-ObjectPropertyValue -Object $settings -Name "providerId" -Value $providerIdentity.Id
+    Set-ObjectPropertyValue -Object $settings -Name "providerName" -Value $providerIdentity.Name
+
+    $legacyProviderIds = @(
+        @(Get-ObjectPropertyValue -Object $settings -Name "legacyProviderIds" -DefaultValue @()) |
+            ForEach-Object { [string]$_ } |
+            Where-Object { $_.Trim() } |
+            Select-Object -Unique
+    )
+    if ([int]$oldVersion -lt $script:StateSchemaVersion) {
+        foreach ($legacyProfile in @(Get-ObjectPropertyValue -Object $State -Name "profiles" -DefaultValue @())) {
+            $legacyId = [string](Get-ObjectPropertyValue -Object $legacyProfile -Name "providerId" -DefaultValue "")
+            if ($legacyId.Trim() -and $legacyId -ne $providerIdentity.Id) {
+                $legacyProviderIds += $legacyId
+            }
+        }
+    }
+    Set-ObjectPropertyValue -Object $settings -Name "legacyProviderIds" -Value @($legacyProviderIds | Select-Object -Unique)
 
     if (-not (Get-ObjectPropertyValue -Object $State -Name "profiles" -DefaultValue $null)) {
         Set-ObjectPropertyValue -Object $State -Name "profiles" -Value @()
@@ -291,10 +318,15 @@ function Normalize-State {
         $safeId = ConvertTo-SafeProfileId $id
         Set-ObjectPropertyValue -Object $profile -Name "id" -Value $safeId
 
-        $name = [string](Get-ObjectPropertyValue -Object $profile -Name "name" -DefaultValue $safeId)
-        Set-ObjectPropertyValue -Object $profile -Name "name" -Value $name
-        Set-ObjectPropertyValue -Object $profile -Name "providerName" -Value ([string](Get-ObjectPropertyValue -Object $profile -Name "providerName" -DefaultValue $name))
-        Set-ObjectPropertyValue -Object $profile -Name "providerId" -Value (ConvertTo-ProviderId -Id $safeId)
+        $legacyName = [string](Get-ObjectPropertyValue -Object $profile -Name "name" -DefaultValue $safeId)
+        $configName = [string](Get-ObjectPropertyValue -Object $profile -Name "configName" -DefaultValue $legacyName)
+        if (-not $configName.Trim()) {
+            $configName = $safeId
+        }
+        Set-ObjectPropertyValue -Object $profile -Name "configName" -Value $configName.Trim()
+        # Keep name as a compatibility alias for older scripts. It is the launcher label, not the Codex provider name.
+        Set-ObjectPropertyValue -Object $profile -Name "name" -Value $configName.Trim()
+        Set-ProfileProviderIdentity -Profile $profile -Identity $providerIdentity
         Set-ObjectPropertyValue -Object $profile -Name "envKeyName" -Value (ConvertTo-EnvKeyName -Id $safeId)
 
         $paths = Get-ObjectPropertyValue -Object $profile -Name "paths" -DefaultValue $null
@@ -379,6 +411,59 @@ function ConvertTo-ProviderId {
     return "api_$providerSuffix"
 }
 
+function ConvertTo-CanonicalProviderId {
+    param([Parameter(Mandatory = $true)][string]$Id)
+
+    $safe = $Id.Trim().ToLowerInvariant() -replace "[^a-z0-9_-]", "_"
+    $safe = $safe.Trim("-_")
+    if (-not $safe) {
+        throw "统一 provider ID 至少需要包含一个字母或数字。"
+    }
+    if ($safe.Length -gt 64) {
+        $safe = $safe.Substring(0, 64).Trim("-_")
+    }
+    if ($safe -notmatch "^[a-z][a-z0-9_-]*$") {
+        throw "统一 provider ID '$Id' 无效。只能使用小写字母、数字、下划线和短横线，并且必须以字母开头。"
+    }
+    return $safe
+}
+
+function Get-CanonicalProviderIdentity {
+    param([AllowNull()]$State)
+
+    $settings = Get-ObjectPropertyValue -Object $State -Name "settings" -DefaultValue $null
+    $rawId = [string](Get-ObjectPropertyValue -Object $settings -Name "providerId" -DefaultValue $script:DefaultProviderId)
+    $providerId = $script:DefaultProviderId
+    if ($rawId.Trim()) {
+        try {
+            $providerId = ConvertTo-CanonicalProviderId -Id $rawId
+        }
+        catch {
+            $providerId = $script:DefaultProviderId
+        }
+    }
+
+    $providerName = [string](Get-ObjectPropertyValue -Object $settings -Name "providerName" -DefaultValue $script:DefaultProviderName)
+    if (-not $providerName.Trim()) {
+        $providerName = $script:DefaultProviderName
+    }
+
+    [pscustomobject]@{
+        Id = $providerId
+        Name = $providerName.Trim()
+    }
+}
+
+function Set-ProfileProviderIdentity {
+    param(
+        [Parameter(Mandatory = $true)]$Profile,
+        [Parameter(Mandatory = $true)]$Identity
+    )
+
+    Set-ObjectPropertyValue -Object $Profile -Name "providerId" -Value ([string]$Identity.Id)
+    Set-ObjectPropertyValue -Object $Profile -Name "providerName" -Value ([string]$Identity.Name)
+}
+
 function ConvertTo-EnvKeyName {
     param([Parameter(Mandatory = $true)][string]$Id)
     $envSuffix = $Id.ToUpperInvariant() -replace "[^A-Z0-9]", "_"
@@ -443,15 +528,62 @@ function Get-CodexApiLauncherSettings {
 
     $state = Read-State
     $sharedCodexHome = Get-SharedCodexHomeFromState -State $state
+    $providerIdentity = Get-CanonicalProviderIdentity -State $state
     [pscustomobject]@{
         Version = $state.version
         LauncherVersion = $state.launcherVersion
         Root = Get-CodexApiLauncherRoot
         SharedCodexHome = $sharedCodexHome
+        ProviderId = $providerIdentity.Id
+        ProviderName = $providerIdentity.Name
+        LegacyProviderIds = @((Get-ObjectPropertyValue -Object $state.settings -Name "legacyProviderIds" -DefaultValue @()))
         ProfilesPath = Get-StatePath
         SecretsDir = Get-SecretsDir
         LaunchersDir = Get-LaunchersDir
     }
+}
+
+function Set-CodexApiLauncherProviderIdentity {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ProviderId,
+        [Parameter(Mandatory = $true)][string]$ProviderName
+    )
+
+    if (-not $ProviderId.Trim()) {
+        throw "统一 provider ID 不能为空。"
+    }
+    if (-not $ProviderName.Trim()) {
+        throw "统一 provider 名称不能为空。"
+    }
+
+    $state = Read-State
+    $previousIdentity = Get-CanonicalProviderIdentity -State $state
+    $identity = [pscustomobject]@{
+        Id = ConvertTo-CanonicalProviderId -Id $ProviderId
+        Name = $ProviderName.Trim()
+    }
+    $legacyProviderIds = @(
+        @(Get-ObjectPropertyValue -Object $state.settings -Name "legacyProviderIds" -DefaultValue @()) |
+            ForEach-Object { [string]$_ } |
+            Where-Object { $_.Trim() }
+    )
+    if ($previousIdentity.Id -ne $identity.Id) {
+        $legacyProviderIds += $previousIdentity.Id
+    }
+    Set-ObjectPropertyValue -Object $state.settings -Name "legacyProviderIds" -Value @($legacyProviderIds | Select-Object -Unique)
+    Set-ObjectPropertyValue -Object $state.settings -Name "providerId" -Value $identity.Id
+    Set-ObjectPropertyValue -Object $state.settings -Name "providerName" -Value $identity.Name
+
+    Ensure-Directory (Get-SharedCodexHomeFromState -State $state)
+    foreach ($profile in @($state.profiles)) {
+        Set-ProfileProviderIdentity -Profile $profile -Identity $identity
+        Write-ProfileConfig -Profile $profile
+        Write-ProfileLauncher -Profile $profile
+    }
+    Write-State -State $state
+
+    Get-CodexApiLauncherSettings
 }
 
 function Set-CodexApiLauncherSharedHome {
@@ -548,20 +680,16 @@ function Read-ProfileApiKey {
 function Get-ConfigText {
     param([Parameter(Mandatory = $true)]$Profile)
 
-    $runtime = Get-ProfileRuntimeConfig -Profile $Profile
-    $providerName = if (ConvertTo-BooleanValue (Get-ObjectPropertyValue -Object $runtime -Name "remoteCompaction" -DefaultValue $false)) {
-        "OpenAI"
-    }
-    else {
-        [string]$Profile.providerName
-    }
+    # Provider identity is global so Codex conversation metadata does not split per relay.
+    $providerId = [string]$Profile.providerId
+    $providerName = [string]$Profile.providerName
 
     $lines = @(
-        "model_provider = $(ConvertTo-TomlString $Profile.providerId)"
+        "model_provider = $(ConvertTo-TomlString $providerId)"
         "model = $(ConvertTo-TomlString $Profile.model)"
         "model_reasoning_effort = $(ConvertTo-TomlString $Profile.reasoningEffort)"
         ""
-        "[model_providers.$($Profile.providerId)]"
+        "[model_providers.$providerId]"
         "name = $(ConvertTo-TomlString $providerName)"
         "base_url = $(ConvertTo-TomlString $Profile.baseUrl)"
         "env_key = $(ConvertTo-TomlString $Profile.envKeyName)"
@@ -685,7 +813,10 @@ function ConvertTo-CodexApiProfileInfo {
 
     [pscustomobject]@{
         Id = $Profile.id
-        Name = $Profile.name
+        Name = $Profile.configName
+        ConfigName = $Profile.configName
+        ProviderId = $Profile.providerId
+        ProviderName = $Profile.providerName
         BaseUrl = $Profile.baseUrl
         Model = $Profile.model
         ReasoningEffort = $Profile.reasoningEffort
@@ -821,6 +952,7 @@ function New-CodexApiProfile {
 
     $now = (Get-Date).ToUniversalTime().ToString("o")
     $sharedCodexHome = Get-SharedCodexHomeFromState -State $state
+    $providerIdentity = Get-CanonicalProviderIdentity -State $state
     $legacyCodexHome = if ($CodexHome -and $CodexHome.Trim()) {
         [System.IO.Path]::GetFullPath($CodexHome.Trim())
     }
@@ -831,14 +963,14 @@ function New-CodexApiProfile {
         ""
     }
     $launcherPath = Join-Path (Get-LaunchersDir) "$safeId.ps1"
-    $providerId = ConvertTo-ProviderId -Id $safeId
     $envKeyName = ConvertTo-EnvKeyName -Id $safeId
 
     $profile = [pscustomobject][ordered]@{
         id = $safeId
-        name = $Name
-        providerName = $Name
-        providerId = $providerId
+        configName = $Name.Trim()
+        name = $Name.Trim()
+        providerName = $providerIdentity.Name
+        providerId = $providerIdentity.Id
         baseUrl = $normalizedBaseUrl
         model = $Model
         reasoningEffort = $ReasoningEffort
@@ -967,8 +1099,8 @@ function Set-CodexApiProfileName {
         throw "没有找到 Profile '$Id'。"
     }
 
+    $profile.configName = $Name.Trim()
     $profile.name = $Name.Trim()
-    $profile.providerName = $Name.Trim()
     $profile.updatedAt = (Get-Date).ToUniversalTime().ToString("o")
     Write-State -State $state
     Write-ProfileConfig -Profile $profile
@@ -1051,8 +1183,8 @@ function Set-CodexApiProfile {
         if (-not $Name.Trim()) {
             throw "供应商名称不能为空。"
         }
+        $profile.configName = $Name.Trim()
         $profile.name = $Name.Trim()
-        $profile.providerName = $Name.Trim()
     }
 
     if ($PSBoundParameters.ContainsKey("BaseUrl")) {
@@ -1128,7 +1260,6 @@ function Set-CodexApiProfile {
 
     if ($idChanged) {
         $profile.id = $targetId
-        $profile.providerId = ConvertTo-ProviderId -Id $targetId
         $profile.envKeyName = ConvertTo-EnvKeyName -Id $targetId
         $profile.paths.profileHome = $targetProfileHome
         $profile.paths.codexHome = $sharedCodexHome
@@ -1726,6 +1857,7 @@ function Remove-CodexApiProfile {
 Export-ModuleMember -Function @(
     "Get-CodexApiLauncherRoot",
     "Get-CodexApiLauncherSettings",
+    "Set-CodexApiLauncherProviderIdentity",
     "Set-CodexApiLauncherSharedHome",
     "Get-CodexApiProfileConfigPath",
     "Set-CodexApiProfileRuntime",

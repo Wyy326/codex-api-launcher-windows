@@ -65,7 +65,8 @@ internal static class ProbeTests
             ("measures SSE failures through the terminal event", MeasuresSseFailureLatencyAsync),
             ("classifies a CLI-only HTTP 403", ClassifiesCliOnly403Async),
             ("redacts credentials echoed by a provider", RedactsProviderDetailsAsync),
-            ("honors cancellation while the stream is idle", HonorsCancellationAsync)
+            ("honors cancellation while the stream is idle", HonorsCancellationAsync),
+            ("migrates only known launcher provider IDs", MigratesOnlyKnownProviderIdsAsync)
         };
 
         if (!string.IsNullOrWhiteSpace(selected))
@@ -233,6 +234,50 @@ internal static class ProbeTests
 
         Assert(result.Cancelled, "cancellation flag missing");
         Assert(result.Status == "cancelled", "cancellation status mismatch");
+    }
+
+    private static Task MigratesOnlyKnownProviderIdsAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"codex-provider-migration-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var databasePath = Path.Combine(root, "state_1.sqlite");
+            using (var database = CodexConversationProviderMigration.NativeSqliteDatabase.Open(databasePath, create: true))
+            {
+                database.Execute("CREATE TABLE threads (id TEXT PRIMARY KEY, model_provider TEXT);");
+                database.Execute("CREATE TABLE external_agent_config_imports (provider_id TEXT);");
+                database.Execute("INSERT INTO threads VALUES ('old-1', 'api_old'), ('old-2', 'api_old'), ('other', 'openai'), ('current', 'api_codex_launcher');");
+                database.Execute("INSERT INTO external_agent_config_imports VALUES ('api_old'), ('openai');");
+            }
+
+            var result = CodexConversationProviderMigration.Run(
+                root,
+                "api_codex_launcher",
+                new[] { "api_old" });
+
+            Assert(result.Status == "migrated", "migration did not run");
+            Assert(result.ThreadRowsChanged == 2, "unexpected migrated thread count");
+            Assert(result.ExternalRowsChanged == 1, "unexpected external import count");
+            Assert(File.Exists(Path.Combine(result.BackupDirectory, "state_1.sqlite")), "database backup missing");
+
+            using var migrated = CodexConversationProviderMigration.NativeSqliteDatabase.Open(databasePath);
+            Assert(migrated.QueryInt("SELECT COUNT(*) FROM threads WHERE model_provider = 'api_codex_launcher';") == 3,
+                "known legacy threads were not unified");
+            Assert(migrated.QueryInt("SELECT COUNT(*) FROM threads WHERE model_provider = 'openai';") == 1,
+                "unrelated provider thread was modified");
+            Assert(migrated.QueryInt("SELECT COUNT(*) FROM external_agent_config_imports WHERE provider_id = 'openai';") == 1,
+                "unrelated external provider was modified");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+
+        return Task.CompletedTask;
     }
 
     private static HttpClient CreateClient(HttpMessageHandler handler)

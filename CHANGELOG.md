@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- 将 provider 身份提升为 launcher 全局设置：所有 profile 共用同一个 `model_provider` 和 provider `name`，配置名称仅用于应用内区分。
+- `profiles.json` 升级到 schema v3；旧 provider ID 会记录为迁移来源，API Key、profile ID 和旧 HOME 不变。
+- 设置页新增统一 provider 身份编辑和“归并历史会话”入口；迁移前备份 `state_*.sqlite`、只改旧 launcher provider ID，遇到数据库占用会停止并提示关闭 Codex。
+- 桌面端和 PowerShell 模块版本升级到 `0.6.0`。
+
 ## 0.5.0
 
 - 新增进程内快速 Responses 探针：复用 `HttpClient`，使用当前选定模型，不再把 `/models` 作为检查前置条件。

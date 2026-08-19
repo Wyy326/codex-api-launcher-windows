@@ -2,7 +2,7 @@
 
 一个轻量 Windows 桌面工具，用来启动多个彼此隔离的 Codex CLI 实例。它面向第三方 OpenAI-compatible API provider，不做 ChatGPT 登录账号隔离。
 
-所有 API 配置共用一份 launcher 管理的 `CODEX_HOME`，每个 profile 只生成一个轻量 overlay：`<id>.config.toml`。启动时会设置共享 `CODEX_HOME`、注入该 profile 的 API Key 环境变量，并通过 `codex --profile <id>` 载入对应 overlay。API Key 不会写入 TOML、脚本或仓库文件。界面里的配置列表使用“显示名称 | 模型 | 供应商 ID”格式，方便区分多个中转。
+所有 API 配置共用一份 launcher 管理的 `CODEX_HOME`，每个 profile 只生成一个轻量 overlay：`<id>.config.toml`。启动时会设置共享 `CODEX_HOME`、注入该 profile 的 API Key 环境变量，并通过 `codex --profile <id>` 载入对应 overlay。API Key 不会写入 TOML、脚本或仓库文件。Codex 的 `model_provider` 和 provider `name` 对所有 profile 保持统一；界面使用 launcher 自己的“配置名称”区分不同中转，因此不会把配置名称写进 Codex provider 身份。
 
 ## 文件
 
@@ -39,9 +39,10 @@ UI 支持：
 
 - 选择已有 API 配置
 - 新增自定义 API 配置
-- 在右侧“当前供应商”里修改显示名称、供应商 ID、中转地址、模型和 API Key
+- 在右侧“当前配置”里修改配置名称、配置 ID、中转地址、模型和 API Key
+- 在“设置”页修改全局统一的 Codex provider ID/name；配置名称只用于 launcher 内部区分
 - 在“配置”页调整 Codex 运行参数：审批级别、sandbox、目标模式、web search、全自动模式等
-- 在“设置”页调整共享 `CODEX_HOME`，并检查旧 per-profile home
+- 在“设置”页调整共享 `CODEX_HOME`，检查旧 per-profile home，并在关闭 Codex 后归并旧 provider 会话
 - 选择项目文件夹
 - 在新的终端窗口里启动隔离的 Codex CLI
 - 可选保存或清除某个配置的默认项目文件夹
@@ -62,8 +63,8 @@ UI 支持：
 默认会生成：
 
 ```text
-dist\CodexApiLauncherDesktop-0.5.0-win-x64\CodexApiLauncher.exe
-dist\CodexApiLauncherDesktop-0.5.0-win-x64.zip
+dist\CodexApiLauncherDesktop-0.6.0-win-x64\CodexApiLauncher.exe
+dist\CodexApiLauncherDesktop-0.6.0-win-x64.zip
 ```
 
 发布包是 self-contained win-x64 构建，不需要目标机器额外安装 .NET 运行时。运行时仍会调用同目录的 PowerShell 模块，以复用已有的 profile、API Key 加密存储、共享 `CODEX_HOME` 和 overlay 配置逻辑。默认启动优先走 Windows Terminal，减少传统 PowerShell 黑窗口。
@@ -220,7 +221,7 @@ Invoke-CodexApiLauncherMigration -DryRun
 Get-CodexApiLegacyHomes
 ```
 
-修改供应商 ID 或其他 provider 信息：
+修改配置 ID、配置名称或中转信息：
 
 ```powershell
 Set-CodexApiProfile `
@@ -231,7 +232,9 @@ Set-CodexApiProfile `
   -Model "gpt-5.6-luna"
 ```
 
-修改供应商 ID 会重命名密钥文件、快捷启动脚本和 overlay 文件。旧 per-profile `CODEX_HOME` 不会自动删除，只会作为 `LegacyCodexHome` 供检查和后续手动清理。
+修改配置 ID 会重命名密钥文件、快捷启动脚本和 overlay 文件，但不会改变统一的 Codex provider ID/name。旧 per-profile `CODEX_HOME` 不会自动删除，只会作为 `LegacyCodexHome` 供检查和后续手动清理。
+
+统一历史会话 provider：先关闭所有 Codex 桌面端和终端，再使用桌面端“设置”页的“归并历史会话”。它会自动创建数据库备份，只处理 schema v2 记录下来的旧 launcher provider ID，不会改动其他 provider 的会话。
 
 重命名配置显示名称：
 

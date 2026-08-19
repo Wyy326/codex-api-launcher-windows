@@ -11,5 +11,6 @@
   <ItemGroup>
     <Compile Include="..\CodexApiLauncher.Desktop\CliProbeProtocol.cs" Link="CliProbeProtocol.cs" />
     <Compile Include="..\CodexApiLauncher.Desktop\FastCliProbe.cs" Link="FastCliProbe.cs" />
+    <Compile Include="..\CodexApiLauncher.Desktop\ConversationProviderMigration.cs" Link="ConversationProviderMigration.cs" />
   </ItemGroup>
 </Project>
