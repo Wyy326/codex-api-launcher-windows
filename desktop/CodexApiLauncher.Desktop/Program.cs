@@ -27,7 +27,7 @@ internal static class Program
     {
         try
         {
-            var bridge = new PowerShellBridge(AppContext.BaseDirectory);
+            using var bridge = new PowerShellBridge(AppContext.BaseDirectory);
             _ = bridge.GetProfiles();
             return 0;
         }
@@ -106,6 +106,7 @@ internal sealed class LauncherForm : Form
     private Button fetchModelsButton = null!;
     private Button cliCheckButton = null!;
     private Button httpTestButton = null!;
+    private Button fullCliCheckButton = null!;
     private Button browseWorkspaceButton = null!;
     private Button saveProjectButton = null!;
     private Button clearProjectButton = null!;
@@ -118,6 +119,10 @@ internal sealed class LauncherForm : Form
     private RichTextBox logsText = null!;
     private Label configSummaryLabel = null!;
     private Label settingsSummaryLabel = null!;
+    private TextBox sharedProviderIdBox = null!;
+    private TextBox sharedProviderNameBox = null!;
+    private Button saveProviderIdentityButton = null!;
+    private Button migrateConversationProvidersButton = null!;
     private Button dashboardNavButton = null!;
     private Button configNavButton = null!;
     private Button logsNavButton = null!;
@@ -211,7 +216,7 @@ internal sealed class LauncherForm : Form
         dashboardPage.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
         Controls.Add(dashboardPage);
 
-        leftPanel.Controls.Add(NewLabel("API 配置文件", 24, 24, 188, 28, 12, FontStyle.Bold));
+        leftPanel.Controls.Add(NewLabel("API 配置", 24, 24, 188, 28, 12, FontStyle.Bold));
 
         var refreshButton = NewIconButton("refresh", 222, 20, 34, 34);
         toolTip.SetToolTip(refreshButton, "刷新配置列表");
@@ -247,7 +252,7 @@ internal sealed class LauncherForm : Form
         ResizeProfileColumns();
         leftPanel.Controls.Add(profileList);
 
-        var profileHint = NewLabel("每个配置保持独立 API 凭据和 overlay；CODEX_HOME 共享。", 24, 534, 232, 52, 9, FontStyle.Regular, mutedColor);
+        var profileHint = NewLabel("配置名称用于应用内区分；provider 身份和 CODEX_HOME 共享。", 24, 534, 232, 52, 9, FontStyle.Regular, mutedColor);
         profileHint.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
         leftPanel.Controls.Add(profileHint);
 
@@ -273,8 +278,10 @@ internal sealed class LauncherForm : Form
         };
         rightPanel.Controls.Add(homeButton);
 
-        providerNameBox = AddEditableField(rightPanel, "显示名称", 16, 58, 520);
-        providerIdBox = AddEditableField(rightPanel, "供应商 ID", 16, 92, 520);
+        providerNameBox = AddEditableField(rightPanel, "配置名称", 16, 58, 520);
+        providerIdBox = AddEditableField(rightPanel, "配置 ID", 16, 92, 520);
+        toolTip.SetToolTip(providerNameBox, "仅用于应用内区分配置，不会写入 Codex provider name。");
+        toolTip.SetToolTip(providerIdBox, "应用内部定位键，用于 overlay 文件名和 API Key 环境变量，不是 Codex provider ID。");
         providerModelBox = AddModelField(rightPanel, "模型", 16, 126);
         providerBaseUrlBox = AddEditableField(rightPanel, "中转地址", 16, 160, 520);
         providerApiKeyBox = AddEditableField(rightPanel, "API Key", 16, 194, 520);
@@ -331,7 +338,7 @@ internal sealed class LauncherForm : Form
         startButton.Click += async (_, _) => await StartCodexAsync();
         rightPanel.Controls.Add(startButton);
 
-        cliCheckButton = NewButton("CLI 检查", 190, 458, 156, 40, primary: true);
+        cliCheckButton = NewButton("快速 CLI 检查", 190, 458, 156, 40, primary: true);
         cliCheckButton.Font = UiFont(10.5f, FontStyle.Bold);
         cliCheckButton.Click += async (_, _) => await RunCliCheckAsync();
         rightPanel.Controls.Add(cliCheckButton);
@@ -341,10 +348,15 @@ internal sealed class LauncherForm : Form
         httpTestButton.Click += async (_, _) => await RunHttpTestAsync();
         rightPanel.Controls.Add(httpTestButton);
 
+        fullCliCheckButton = NewButton("完整 CLI 诊断", 538, 458, 156, 40);
+        fullCliCheckButton.Font = UiFont(10.0f, FontStyle.Bold);
+        fullCliCheckButton.Click += async (_, _) => await RunFullCliDiagnosticAsync();
+        rightPanel.Controls.Add(fullCliCheckButton);
+
         outputTitleLabel = NewLabel("最近状态", 16, 528, 140, 26, 11, FontStyle.Bold);
         rightPanel.Controls.Add(outputTitleLabel);
 
-        outputMetaLabel = NewLabel("空闲", 108, 530, 160, 24, 9, FontStyle.Regular, mutedColor);
+        outputMetaLabel = NewLabel("空闲", 168, 530, 180, 24, 9, FontStyle.Regular, mutedColor);
         rightPanel.Controls.Add(outputMetaLabel);
 
         dashboardStatusLabel = NewLabel("准备就绪。", 16, 566, 772, 56, 9.5f, FontStyle.Regular, textColor);
@@ -412,7 +424,7 @@ internal sealed class LauncherForm : Form
 
     private ComboBox AddModelField(Control parent, string label, int x, int y)
     {
-        parent.Controls.Add(NewLabel(label, x, y + 4, 86, 24, 9, FontStyle.Bold, mutedColor));
+        parent.Controls.Add(NewLabel(label, x, y + 4, 96, 24, 9, FontStyle.Bold, mutedColor));
         var box = new LauncherComboBox
         {
             Location = new Point(x + 100, y),
@@ -471,7 +483,7 @@ internal sealed class LauncherForm : Form
         page.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
         page.Visible = false;
         page.Controls.Add(NewLabel("配置", 16, 16, 180, 30, 14, FontStyle.Bold));
-        page.Controls.Add(NewLabel("当前页管理 Codex 启动参数、共享目录和每个供应商的 overlay 配置。", 16, 52, 760, 24, 9, FontStyle.Regular, mutedColor));
+        page.Controls.Add(NewLabel("当前页管理 Codex 启动参数、共享目录和每个配置的 overlay。", 16, 52, 760, 24, 9, FontStyle.Regular, mutedColor));
 
         configSummaryLabel = NewLabel("", 16, 86, 772, 82, 9.5f, FontStyle.Regular, textColor);
         page.Controls.Add(configSummaryLabel);
@@ -490,7 +502,7 @@ internal sealed class LauncherForm : Form
         toolTip.SetToolTip(webSearchBox, "enabled 追加 --search；disabled 写入 web_search=\"disabled\"。");
 
         fullAutoCheck = NewRuntimeCheckBox("无需审批全自动", 16, 326, 178, "追加 --dangerously-bypass-approvals-and-sandbox。只在完全信任项目和命令时使用。");
-        remoteCompactionCheck = NewRuntimeCheckBox("远程压缩兼容", 212, 326, 166, "把 overlay 里的 provider name 写成 OpenAI，用来兼容依赖 OpenAI provider 名称的远程压缩逻辑。");
+        remoteCompactionCheck = NewRuntimeCheckBox("远程压缩兼容", 212, 326, 166, "保留兼容开关，但不会改写统一 provider 身份；是否生效取决于当前 Codex 版本。");
         strictConfigCheck = NewRuntimeCheckBox("严格配置校验", 396, 326, 156, "追加 --strict-config。Codex 发现未知或不被支持的配置项时直接报错。");
         bypassHookTrustCheck = NewRuntimeCheckBox("跳过 Hook 信任", 570, 326, 170, "追加 --dangerously-bypass-hook-trust。会绕过 hook 信任确认，只建议临时排查使用。");
         page.Controls.Add(fullAutoCheck);
@@ -498,7 +510,7 @@ internal sealed class LauncherForm : Form
         page.Controls.Add(strictConfigCheck);
         page.Controls.Add(bypassHookTrustCheck);
 
-        page.Controls.Add(NewLabel("远程压缩兼容只改 provider name；严格配置会提前暴露配置错误；跳过 Hook 信任属于危险绕过。", 16, 358, 760, 36, 8.5f, FontStyle.Regular, mutedColor));
+        page.Controls.Add(NewLabel("所有配置共用同一个 Codex provider 身份；严格配置会提前暴露配置错误；跳过 Hook 信任属于危险绕过。", 16, 358, 760, 36, 8.5f, FontStyle.Regular, mutedColor));
 
         var saveRuntimeButton = NewButton("保存运行参数", 16, 410, 130, 34, primary: true);
         saveRuntimeButton.Click += async (_, _) => await SaveRuntimeSettingsAsync();
@@ -568,6 +580,10 @@ internal sealed class LauncherForm : Form
             browseWorkspaceButton is null ||
             saveProjectButton is null ||
             clearProjectButton is null ||
+            startButton is null ||
+            cliCheckButton is null ||
+            httpTestButton is null ||
+            fullCliCheckButton is null ||
             dashboardStatusLabel is null)
         {
             return;
@@ -586,6 +602,16 @@ internal sealed class LauncherForm : Form
         browseWorkspaceButton.Left = right - browseWorkspaceButton.Width;
         clearProjectButton.Left = right - clearProjectButton.Width;
         saveProjectButton.Left = clearProjectButton.Left - gap - saveProjectButton.Width;
+
+        var actionWidth = Math.Max(120, (right - left - gap * 3) / 4);
+        startButton.Width = actionWidth;
+        cliCheckButton.Width = actionWidth;
+        httpTestButton.Width = actionWidth;
+        fullCliCheckButton.Width = actionWidth;
+        startButton.Left = left;
+        cliCheckButton.Left = startButton.Right + gap;
+        httpTestButton.Left = cliCheckButton.Right + gap;
+        fullCliCheckButton.Left = httpTestButton.Right + gap;
 
         providerNameBox.Width = Math.Max(320, right - providerNameBox.Left);
         providerIdBox.Width = Math.Max(320, right - providerIdBox.Left);
@@ -637,15 +663,44 @@ internal sealed class LauncherForm : Form
         page.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
         page.Visible = false;
         page.Controls.Add(NewLabel("设置", 16, 16, 180, 30, 14, FontStyle.Bold));
-        page.Controls.Add(NewLabel("查看当前应用路径、运行时目录和公开仓库入口。", 16, 52, 760, 24, 9, FontStyle.Regular, mutedColor));
+        page.Controls.Add(NewLabel("管理共享 Codex 身份、运行时目录、旧 HOME 检查和公开仓库入口。", 16, 52, 760, 24, 9, FontStyle.Regular, mutedColor));
 
         settingsSummaryLabel = NewLabel("", 16, 92, 772, 150, 9.5f, FontStyle.Regular, textColor);
         page.Controls.Add(settingsSummaryLabel);
 
-        page.Controls.Add(NewLabel("共享 CODEX_HOME", 16, 254, 160, 24, 10, FontStyle.Bold));
+        page.Controls.Add(NewLabel("统一 Codex provider 身份", 16, 254, 240, 24, 10, FontStyle.Bold));
+        page.Controls.Add(NewLabel("所有配置共用；应用内用配置名称区分。新启动立即生效，历史会话可单独归并。", 16, 280, 772, 22, 9, FontStyle.Regular, mutedColor));
+
+        page.Controls.Add(NewLabel("Provider ID", 16, 314, 100, 24, 9, FontStyle.Bold, mutedColor));
+        sharedProviderIdBox = new TextBox
+        {
+            Location = new Point(116, 310),
+            Size = new Size(230, 28),
+            Font = UiFont(9.5f),
+            BackColor = fieldColor,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        page.Controls.Add(sharedProviderIdBox);
+
+        page.Controls.Add(NewLabel("Provider name", 366, 314, 108, 24, 9, FontStyle.Bold, mutedColor));
+        sharedProviderNameBox = new TextBox
+        {
+            Location = new Point(474, 310),
+            Size = new Size(208, 28),
+            Font = UiFont(9.5f),
+            BackColor = fieldColor,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        page.Controls.Add(sharedProviderNameBox);
+
+        saveProviderIdentityButton = NewButton("保存统一身份", 690, 308, 98, 32, primary: true);
+        saveProviderIdentityButton.Click += async (_, _) => await SaveProviderIdentityAsync();
+        page.Controls.Add(saveProviderIdentityButton);
+
+        page.Controls.Add(NewLabel("共享 CODEX_HOME", 16, 372, 160, 24, 10, FontStyle.Bold));
         sharedHomeBox = new TextBox
         {
-            Location = new Point(16, 284),
+            Location = new Point(16, 402),
             Size = new Size(560, 28),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             Font = UiFont(9.5f),
@@ -654,37 +709,42 @@ internal sealed class LauncherForm : Form
         };
         page.Controls.Add(sharedHomeBox);
 
-        var saveSharedHomeButton = NewButton("保存共享目录", 592, 282, 120, 32, primary: true);
+        var saveSharedHomeButton = NewButton("保存共享目录", 592, 400, 120, 32, primary: true);
         saveSharedHomeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         saveSharedHomeButton.Click += async (_, _) => await SaveSharedHomeAsync();
         page.Controls.Add(saveSharedHomeButton);
 
-        var browseSharedHomeButton = NewButton("选择", 724, 282, 64, 32);
+        var browseSharedHomeButton = NewButton("选择", 724, 400, 64, 32);
         browseSharedHomeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         browseSharedHomeButton.Click += (_, _) => BrowseSharedHome();
         page.Controls.Add(browseSharedHomeButton);
 
-        var migrationButton = NewButton("迁移检查", 16, 334, 104, 34);
+        var migrationButton = NewButton("迁移检查", 16, 454, 104, 34);
         migrationButton.Click += (_, _) => ShowMigrationDryRun();
         page.Controls.Add(migrationButton);
 
-        var legacyButton = NewButton("列出旧 HOME", 138, 334, 112, 34);
+        var legacyButton = NewButton("列出旧 HOME", 138, 454, 112, 34);
         legacyButton.Click += (_, _) => ShowLegacyHomes();
         page.Controls.Add(legacyButton);
 
-        var openAppDirButton = NewButton("打开应用目录", 16, 392, 128, 34);
+        migrateConversationProvidersButton = NewButton("归并历史会话", 268, 454, 132, 34, primary: true);
+        migrateConversationProvidersButton.Click += async (_, _) => await MigrateConversationProvidersAsync();
+        toolTip.SetToolTip(migrateConversationProvidersButton, "仅把该启动器记录的旧 provider ID 归并为当前统一身份；修改前自动备份数据库。");
+        page.Controls.Add(migrateConversationProvidersButton);
+
+        var openAppDirButton = NewButton("打开应用目录", 16, 512, 128, 34);
         openAppDirButton.Click += (_, _) => OpenFolder(AppContext.BaseDirectory);
         page.Controls.Add(openAppDirButton);
 
-        var openRuntimeButton = NewButton("打开运行时目录", 162, 392, 140, 34);
+        var openRuntimeButton = NewButton("打开运行时目录", 162, 512, 140, 34);
         openRuntimeButton.Click += (_, _) => OpenFolder(GetDefaultLauncherHome());
         page.Controls.Add(openRuntimeButton);
 
-        var openDesktopButton = NewButton("打开桌面", 314, 392, 104, 34);
+        var openDesktopButton = NewButton("打开桌面", 314, 512, 104, 34);
         openDesktopButton.Click += (_, _) => OpenFolder(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
         page.Controls.Add(openDesktopButton);
 
-        var githubButton = NewButton("打开 GitHub", 432, 392, 112, 34);
+        var githubButton = NewButton("打开 GitHub", 432, 512, 112, 34);
         githubButton.Click += (_, _) => OpenUrl("https://github.com/Wyy326/codex-api-launcher-windows");
         page.Controls.Add(githubButton);
         return page;
@@ -720,13 +780,15 @@ internal sealed class LauncherForm : Form
     private void UpdateInfoPages()
     {
         var profile = SelectedProfile();
+        var settings = bridge.GetSettings();
         if (configSummaryLabel is not null)
         {
             configSummaryLabel.Text = string.Join(Environment.NewLine, new[]
             {
                 $"配置根目录: {GetDefaultLauncherHome()}",
                 $"快捷脚本目录: {bridge.GetLaunchersDir()}",
-                $"当前供应商: {profile?.Name ?? "未选择"}",
+                $"当前配置: {profile?.Name ?? "未选择"}",
+                $"统一 provider: {settings.ProviderName} ({settings.ProviderId})",
                 $"共享 CODEX_HOME: {profile?.CodexHome ?? "未选择"}",
                 $"当前 Overlay: {profile?.ProfileConfigPath ?? "未选择"}",
                 $"Legacy HOME: {profile?.LegacyCodexHome ?? ""}",
@@ -735,16 +797,24 @@ internal sealed class LauncherForm : Form
 
         if (settingsSummaryLabel is not null)
         {
-            var settings = bridge.GetSettings();
             var legacyHomes = bridge.GetLegacyHomes();
             if (sharedHomeBox is not null && !sharedHomeBox.Focused)
             {
                 sharedHomeBox.Text = settings.SharedCodexHome;
             }
+            if (sharedProviderIdBox is not null && !sharedProviderIdBox.Focused)
+            {
+                sharedProviderIdBox.Text = settings.ProviderId;
+            }
+            if (sharedProviderNameBox is not null && !sharedProviderNameBox.Focused)
+            {
+                sharedProviderNameBox.Text = settings.ProviderName;
+            }
             settingsSummaryLabel.Text = string.Join(Environment.NewLine, new[]
             {
                 $"应用目录: {AppContext.BaseDirectory}",
                 $"运行时目录: {GetDefaultLauncherHome()}",
+                $"统一 provider: {settings.ProviderName} ({settings.ProviderId})",
                 $"共享 CODEX_HOME: {settings.SharedCodexHome}",
                 $"Legacy HOME 数量: {legacyHomes.Count}",
                 $"桌面目录: {Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)}",
@@ -762,7 +832,7 @@ internal sealed class LauncherForm : Form
         }
 
         var draft = dialog.Profile;
-        var created = await RunUiActionAsync("正在创建供应商配置...", () => bridge.CreateProfile(draft));
+        var created = await RunUiActionAsync("正在创建配置...", () => bridge.CreateProfile(draft));
         if (created)
         {
             await RefreshProfilesAsync(draft.Id);
@@ -797,7 +867,7 @@ internal sealed class LauncherForm : Form
         }
 
         ProfileInfo? savedProfile = null;
-        var updated = await RunUiActionAsync("正在保存供应商配置...", () => savedProfile = bridge.UpdateProfile(draft));
+        var updated = await RunUiActionAsync("正在保存配置...", () => savedProfile = bridge.UpdateProfile(draft));
         if (updated)
         {
             providerApiKeyBox.Text = "";
@@ -866,7 +936,7 @@ internal sealed class LauncherForm : Form
     private async Task FetchModelsAsync()
     {
         var profile = RequireProfile();
-        await RunUiActionAsync("正在从当前供应商的 /models 获取模型列表...", () =>
+        await RunUiActionAsync("正在从当前配置的 /models 获取模型列表...", () =>
         {
             var models = bridge.GetModels(profile.Id);
             BeginInvoke((Action)(() =>
@@ -901,7 +971,7 @@ internal sealed class LauncherForm : Form
             string.IsNullOrWhiteSpace(draft.BaseUrl) ||
             string.IsNullOrWhiteSpace(draft.Model))
         {
-            throw new InvalidOperationException("请填写显示名称、供应商 ID、中转地址和模型。");
+            throw new InvalidOperationException("请填写配置名称、配置 ID、中转地址和模型。");
         }
 
         if (!Uri.TryCreate(draft.BaseUrl, UriKind.Absolute, out var uri) ||
@@ -924,7 +994,7 @@ internal sealed class LauncherForm : Form
 
     private TextBox AddEditableField(Control parent, string label, int x, int y, int valueWidth)
     {
-        parent.Controls.Add(NewLabel(label, x, y + 4, 86, 24, 9, FontStyle.Bold, mutedColor));
+        parent.Controls.Add(NewLabel(label, x, y + 4, 96, 24, 9, FontStyle.Bold, mutedColor));
         var box = new TextBox
         {
             Location = new Point(x + 100, y),
@@ -940,7 +1010,7 @@ internal sealed class LauncherForm : Form
 
     private TextBox AddCodexHomeField(Control parent, string label, int x, int y)
     {
-        parent.Controls.Add(NewLabel(label, x, y + 4, 86, 24, 9, FontStyle.Bold, mutedColor));
+        parent.Controls.Add(NewLabel(label, x, y + 4, 96, 24, 9, FontStyle.Bold, mutedColor));
         var box = new TextBox
         {
             Location = new Point(x + 100, y),
@@ -952,7 +1022,7 @@ internal sealed class LauncherForm : Form
         };
         parent.Controls.Add(box);
 
-        migrateHomeButton = NewButton("打开 Overlay", x + 550, y - 2, 104, 32);
+        migrateHomeButton = NewButton("打开配置", x + 550, y - 2, 104, 32);
         migrateHomeButton.Click += (_, _) =>
         {
             var profile = SelectedProfile();
@@ -1069,7 +1139,7 @@ internal sealed class LauncherForm : Form
 
     private async Task RefreshProfilesAsync(string? keepId = null)
     {
-        await RunUiActionAsync("正在刷新供应商配置...", () =>
+        await RunUiActionAsync("正在刷新配置...", () =>
         {
             var profiles = bridge.GetProfiles();
             BeginInvoke((Action)(() =>
@@ -1106,12 +1176,12 @@ internal sealed class LauncherForm : Form
                     profileList.Select();
                     profileList.Refresh();
                     PopulateSelectedProfile(profileToSelect);
-                    SetStatus($"已加载 {profiles.Count} 个供应商配置。选择项目文件夹后即可启动。");
+                    SetStatus($"已加载 {profiles.Count} 个配置。选择项目文件夹后即可启动。");
                 }
                 else
                 {
                     activeProfile = null;
-                    SetStatus("还没有找到任何供应商配置。请先新增供应商。");
+                    SetStatus("还没有找到任何配置。请先新增配置。");
                     PopulateSelectedProfile(null);
                 }
 
@@ -1152,7 +1222,7 @@ internal sealed class LauncherForm : Form
             return;
         }
 
-        providerNameBox.Text = profile.Name;
+        providerNameBox.Text = string.IsNullOrWhiteSpace(profile.ConfigName) ? profile.Name : profile.ConfigName;
         providerIdBox.Text = profile.Id;
         providerModelBox.Items.Clear();
         providerModelBox.Text = profile.Model;
@@ -1233,7 +1303,8 @@ internal sealed class LauncherForm : Form
 
     private static string ProfileDisplayText(ProfileInfo profile)
     {
-        return $"{profile.Name} | {profile.Model} | {profile.Id}";
+        var configName = string.IsNullOrWhiteSpace(profile.ConfigName) ? profile.Name : profile.ConfigName;
+        return $"{configName} | {profile.Model} | {profile.Id}";
     }
 
     private bool WorkspaceReady()
@@ -1252,6 +1323,7 @@ internal sealed class LauncherForm : Form
         fetchModelsButton.Enabled = !isBusy && hasProfile;
         cliCheckButton.Enabled = !isBusy && hasProfile;
         httpTestButton.Enabled = !isBusy && hasProfile;
+        fullCliCheckButton.Enabled = !isBusy && hasProfile;
         homeButton.Enabled = !isBusy && hasProfile;
         saveProjectButton.Enabled = !isBusy && hasProfile;
         clearProjectButton.Enabled = !isBusy && hasProfile;
@@ -1271,6 +1343,10 @@ internal sealed class LauncherForm : Form
         if (strictConfigCheck is not null) strictConfigCheck.Enabled = !isBusy && hasProfile;
         if (bypassHookTrustCheck is not null) bypassHookTrustCheck.Enabled = !isBusy && hasProfile;
         if (sharedHomeBox is not null) sharedHomeBox.Enabled = !isBusy;
+        if (sharedProviderIdBox is not null) sharedProviderIdBox.Enabled = !isBusy;
+        if (sharedProviderNameBox is not null) sharedProviderNameBox.Enabled = !isBusy;
+        if (saveProviderIdentityButton is not null) saveProviderIdentityButton.Enabled = !isBusy;
+        if (migrateConversationProvidersButton is not null) migrateConversationProvidersButton.Enabled = !isBusy;
     }
 
     private void BrowseWorkspace()
@@ -1335,6 +1411,26 @@ internal sealed class LauncherForm : Form
         UpdateInfoPages();
     }
 
+    private async Task SaveProviderIdentityAsync()
+    {
+        var providerId = sharedProviderIdBox.Text.Trim();
+        var providerName = sharedProviderNameBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(providerId) || string.IsNullOrWhiteSpace(providerName))
+        {
+            SetStatus("统一 provider ID 和名称都不能为空。");
+            return;
+        }
+
+        var saved = await RunUiActionAsync("正在统一 provider 身份并重写所有 overlay...", () =>
+            bridge.SetProviderIdentity(providerId, providerName));
+        if (saved)
+        {
+            await RefreshProfilesAsync(SelectedProfile()?.Id);
+            UpdateInfoPages();
+            SetStatus("统一 provider 身份已保存。已运行的终端需要重启后读取新 overlay。");
+        }
+    }
+
     private void BrowseSharedHome()
     {
         using var dialog = new FolderBrowserDialog
@@ -1381,6 +1477,61 @@ internal sealed class LauncherForm : Form
             $"{home.Id} | exists={home.Exists} | {home.LegacyCodexHome}")));
     }
 
+    private async Task MigrateConversationProvidersAsync()
+    {
+        var settings = bridge.GetSettings();
+        if (settings.LegacyProviderIds.Count == 0)
+        {
+            SetStatus("没有记录可归并的旧 launcher provider ID；未修改其他会话。");
+            return;
+        }
+
+        var oldIds = string.Join(", ", settings.LegacyProviderIds);
+        var answer = MessageBox.Show(
+            this,
+            string.Join(Environment.NewLine, new[]
+            {
+                "这会把该启动器创建的旧会话归并到当前统一 provider 身份。",
+                $"目标: {settings.ProviderName} ({settings.ProviderId})",
+                $"旧 ID: {oldIds}",
+                "",
+                "操作前会备份 state SQLite 数据库。请先关闭其他 Codex 桌面端和终端，避免数据库占用。"
+            }),
+            "归并历史会话",
+            MessageBoxButtons.OKCancel,
+            MessageBoxIcon.Warning);
+        if (answer != DialogResult.OK)
+        {
+            return;
+        }
+
+        ConversationProviderMigrationResult? result = null;
+        var completed = await RunUiActionAsync(
+            "正在备份数据库并归并历史会话...",
+            () => result = bridge.MigrateConversationProviders(),
+            timeoutMilliseconds: 120_000);
+        if (!completed || result is null)
+        {
+            return;
+        }
+
+        var details = string.Join(Environment.NewLine, new[]
+        {
+            result.Message,
+            $"处理数据库: {result.DatabaseCount}",
+            $"归并会话: {result.ThreadRowsChanged}",
+            $"归并外部配置记录: {result.ExternalRowsChanged}",
+            string.IsNullOrWhiteSpace(result.BackupDirectory) ? "未创建新备份。" : $"备份: {result.BackupDirectory}"
+        });
+        SetStatus(details);
+        MessageBox.Show(
+            this,
+            details,
+            result.Status == "migrated" ? "历史会话已归并" : "无需归并",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
+    }
+
     private async Task StartCodexAsync()
     {
         var profile = RequireProfile();
@@ -1404,18 +1555,17 @@ internal sealed class LauncherForm : Form
     private async Task RunCliCheckAsync()
     {
         var profile = RequireProfile();
-        var (workspace, usedFallback) = ResolveCliCheckWorkspace();
         await RunCheckWithDialogAsync(
-            title: "CLI 检查进行中",
+            title: "快速 CLI 检查进行中",
             subtitle: $"{profile.Name} | {profile.Model}",
-            busyText: "正在运行真实 Codex CLI 检查...",
-            loadingSummary: "正在启动 Codex CLI，并等待选定模型返回 CLI_OK。",
-            action: () => bridge.RunCliCheck(profile.Id, workspace, usedFallback),
+            busyText: "正在运行快速 CLI 兼容检查...",
+            loadingSummary: "直接发送 Codex CLI 身份请求；收到首个有效 SSE 输出后立即结束。",
+            action: (progress, token) => bridge.RunFastProbeAsync(profile, useCliIdentity: true, progress, token),
             onSuccess: result =>
             {
-                var details = FormatCliResult(result);
-                SetStatus(details, BuildCliDashboardSummary(result));
-                return BuildCliCheckDialogData(profile, result);
+                var details = FormatProbeResult(result, profile, "快速 CLI 兼容检查");
+                SetStatus(details, BuildProbeDashboardSummary(result, cliIdentity: true));
+                return BuildProbeCheckDialogData(profile, result, cliIdentity: true);
             });
     }
 
@@ -1425,20 +1575,42 @@ internal sealed class LauncherForm : Form
         await RunCheckWithDialogAsync(
             title: "HTTP 检查进行中",
             subtitle: $"{profile.Name} | {profile.Model}",
-            busyText: "正在运行 HTTP 连通性检查...",
-            loadingSummary: "正在用当前选中的模型请求 /responses，完成后会显示 HTTP 状态和错误原因。",
-            action: () => bridge.TestProfile(profile.Id),
+            busyText: "正在运行标准 HTTP 检查...",
+            loadingSummary: "使用当前模型发送标准流式 /responses 请求，不附加 Codex CLI 身份。",
+            action: (progress, token) => bridge.RunFastProbeAsync(profile, useCliIdentity: false, progress, token),
             onSuccess: result =>
             {
-                var details = FormatHttpResult(result, profile);
-                SetStatus(details, BuildHttpDashboardSummary(result));
-                return BuildHttpCheckDialogData(profile, result);
+                var details = FormatProbeResult(result, profile, "标准 HTTP 检查");
+                SetStatus(details, BuildProbeDashboardSummary(result, cliIdentity: false));
+                return BuildProbeCheckDialogData(profile, result, cliIdentity: false);
+            });
+    }
+
+    private async Task RunFullCliDiagnosticAsync()
+    {
+        var profile = RequireProfile();
+        var (workspace, usedFallback) = ResolveCliCheckWorkspace();
+        await RunCheckWithDialogAsync(
+            title: "完整 CLI 诊断进行中",
+            subtitle: $"{profile.Name} | {profile.Model}",
+            busyText: "正在运行完整 Codex CLI 诊断...",
+            loadingSummary: "启动真实 codex exec。此路径较慢，并会使用 Codex 的完整配置和会话系统。",
+            action: async (progress, token) =>
+            {
+                progress.Report(new CliProbeProgress("cli", "正在启动 codex exec，等待 CLI_OK。", 0));
+                return await bridge.RunCliCheckAsync(profile.Id, workspace, usedFallback, token);
+            },
+            onSuccess: result =>
+            {
+                var details = FormatCliResult(result);
+                SetStatus(details, BuildCliDashboardSummary(result));
+                return BuildCliCheckDialogData(profile, result);
             });
     }
 
     private ProfileInfo RequireProfile()
     {
-        return SelectedProfile() ?? throw new InvalidOperationException("请先选择一个供应商配置。");
+        return SelectedProfile() ?? throw new InvalidOperationException("请先选择一个配置。");
     }
 
     private string? ReadWorkspaceOrShowStatus()
@@ -1511,22 +1683,25 @@ internal sealed class LauncherForm : Form
         }
     }
 
-    private string FormatHttpResult(ProfileTestResult result, ProfileInfo profile)
+    private string FormatProbeResult(CliProbeResult result, ProfileInfo profile, string label)
     {
         var endpoint = string.IsNullOrWhiteSpace(result.Endpoint) ? "/responses" : result.Endpoint;
-        var latency = result.LatencyMs.HasValue ? $"{result.LatencyMs.Value} ms" : "无";
         return RedactSecrets(string.Join(Environment.NewLine, new[]
         {
-            "HTTP 连通性检查",
-            $"供应商: {profile.Name} ({profile.Id})",
+            label,
+            $"配置: {profile.Name} ({profile.Id})",
             $"Base URL: {profile.BaseUrl}",
             $"模型: {profile.Model}",
             $"Endpoint: {endpoint}",
             $"状态: {TranslateProviderStatus(result.Status)}",
             $"是否通过: {result.Ok}",
-            $"/responses HTTP: {FormatHttpCode(result.ResponsesHttpStatus)}",
-            $"耗时: {latency}",
-            $"详情: {result.Details ?? ""}"
+            $"/responses HTTP: {FormatHttpCode(result.HttpStatus)}",
+            $"响应头耗时: {FormatMilliseconds(result.HeadersLatencyMs)}",
+            $"首事件耗时: {FormatMilliseconds(result.FirstEventLatencyMs)}",
+            $"总耗时: {result.LatencyMs} ms",
+            $"首事件: {result.FirstEventType ?? "无"}",
+            $"错误码: {result.ErrorCode ?? "无"}",
+            $"详情: {result.Details}"
         }));
     }
 
@@ -1536,8 +1711,8 @@ internal sealed class LauncherForm : Form
         var error = string.IsNullOrWhiteSpace(result.StandardError) ? "无" : TrimForUi(result.StandardError, 1000);
         return RedactSecrets(string.Join(Environment.NewLine, new[]
         {
-            "CLI 检查",
-            $"供应商: {result.Id}",
+            "完整 CLI 诊断",
+            $"配置: {result.Id}",
             $"工作目录: {result.Workspace}",
             $"使用临时检查目录: {result.UsedFallback}",
             $"退出码: {result.ExitCode}",
@@ -1551,47 +1726,57 @@ internal sealed class LauncherForm : Form
         }));
     }
 
-    private static string BuildHttpDashboardSummary(ProfileTestResult result)
+    private static string BuildProbeDashboardSummary(CliProbeResult result, bool cliIdentity)
     {
+        var label = cliIdentity ? "快速 CLI 检查" : "HTTP 检查";
+        if (result.Cancelled)
+        {
+            return $"{label}已取消。";
+        }
         if (result.Ok)
         {
-            var latency = result.LatencyMs.HasValue ? $"，耗时 {result.LatencyMs.Value} ms" : "";
-            return $"HTTP 检查通过。/responses {FormatHttpCode(result.ResponsesHttpStatus)}{latency}。";
+            return $"{label}通过。/responses {FormatHttpCode(result.HttpStatus)}，耗时 {result.LatencyMs} ms。";
         }
 
-        return $"HTTP 检查失败：{TranslateProviderStatus(result.Status)}。/responses {FormatHttpCode(result.ResponsesHttpStatus)}。";
+        return $"{label}失败：{TranslateProviderStatus(result.Status)}。/responses {FormatHttpCode(result.HttpStatus)}。";
     }
 
     private static string BuildCliDashboardSummary(CliCheckResult result)
     {
         if (result.Ok)
         {
-            return $"CLI 检查通过。退出码 {result.ExitCode}，已收到 CLI_OK。";
+            return $"完整 CLI 诊断通过。退出码 {result.ExitCode}，已收到 CLI_OK。";
         }
 
         var reason = result.FoundExpectedReply ? "命令退出码非 0" : "未收到 CLI_OK";
-        return $"CLI 检查失败：{reason}。退出码 {result.ExitCode}。";
+        return $"完整 CLI 诊断失败：{reason}。退出码 {result.ExitCode}。";
     }
 
-    private CheckResultDialogData BuildHttpCheckDialogData(ProfileInfo profile, ProfileTestResult result)
+    private CheckResultDialogData BuildProbeCheckDialogData(ProfileInfo profile, CliProbeResult result, bool cliIdentity)
     {
+        var label = cliIdentity ? "快速 CLI 检查" : "HTTP 检查";
         var data = new CheckResultDialogData
         {
-            Title = result.Ok ? "HTTP 检查通过" : "HTTP 检查失败",
+            Title = result.Cancelled ? $"{label}已取消" : result.Ok ? $"{label}通过" : $"{label}失败",
             Subtitle = $"{profile.Name} | {profile.Model}",
             Success = result.Ok,
-            Summary = result.Ok
-                ? "Provider 对当前选中的模型和最小 /responses 请求有明确成功返回。"
-                : TranslateProviderStatus(result.Status),
-            Details = RedactSecrets(result.Details ?? "")
+            Cancelled = result.Cancelled,
+            Summary = result.Cancelled
+                ? "检查已由用户取消，未继续等待 Provider。"
+                : result.Ok
+                    ? "Provider 对当前模型返回了明确的有效 Responses 事件。"
+                    : TranslateProviderStatus(result.Status),
+            Details = RedactSecrets(result.Details)
         };
         var endpoint = string.IsNullOrWhiteSpace(result.Endpoint) ? "/responses" : result.Endpoint;
-        var latency = result.LatencyMs.HasValue ? $"{result.LatencyMs.Value} ms" : "无";
-        data.Rows.Add(new CheckResultRow("供应商", $"{profile.Name} ({profile.Id})"));
-        data.Rows.Add(new CheckResultRow("模型", result.Model ?? profile.Model));
+        data.Rows.Add(new CheckResultRow("配置", $"{profile.Name} ({profile.Id})"));
+        data.Rows.Add(new CheckResultRow("模型", string.IsNullOrWhiteSpace(result.Model) ? profile.Model : result.Model));
+        data.Rows.Add(new CheckResultRow("请求身份", cliIdentity ? $"Codex CLI {result.ClientVersion}" : "标准 HTTP"));
         data.Rows.Add(new CheckResultRow("Endpoint", endpoint));
-        data.Rows.Add(new CheckResultRow("/responses", FormatHttpCode(result.ResponsesHttpStatus)));
-        data.Rows.Add(new CheckResultRow("耗时", latency));
+        data.Rows.Add(new CheckResultRow("HTTP", FormatHttpCode(result.HttpStatus)));
+        data.Rows.Add(new CheckResultRow("响应头", FormatMilliseconds(result.HeadersLatencyMs)));
+        data.Rows.Add(new CheckResultRow("首事件", result.FirstEventType ?? "无"));
+        data.Rows.Add(new CheckResultRow("总耗时", $"{result.LatencyMs} ms"));
         data.Rows.Add(new CheckResultRow("判定", TranslateProviderStatus(result.Status)));
         return data;
     }
@@ -1600,7 +1785,7 @@ internal sealed class LauncherForm : Form
     {
         var data = new CheckResultDialogData
         {
-            Title = result.Ok ? "CLI 检查通过" : "CLI 检查失败",
+            Title = result.Ok ? "完整 CLI 诊断通过" : "完整 CLI 诊断失败",
             Subtitle = $"{profile.Name} | {profile.Model}",
             Success = result.Ok,
             Summary = result.Ok
@@ -1614,7 +1799,7 @@ internal sealed class LauncherForm : Form
                 TrimForUi(result.StandardError, 900)
             }).Trim())
         };
-        data.Rows.Add(new CheckResultRow("供应商", $"{profile.Name} ({profile.Id})"));
+        data.Rows.Add(new CheckResultRow("配置", $"{profile.Name} ({profile.Id})"));
         data.Rows.Add(new CheckResultRow("工作目录", result.Workspace));
         data.Rows.Add(new CheckResultRow("退出码", result.ExitCode.ToString()));
         data.Rows.Add(new CheckResultRow("预期返回", result.FoundExpectedReply ? "已收到 CLI_OK" : "未收到 CLI_OK"));
@@ -1628,26 +1813,40 @@ internal sealed class LauncherForm : Form
         dialog.ShowDialog(this);
     }
 
-    private Task RunCheckWithDialogAsync<TResult>(
+    private async Task RunCheckWithDialogAsync<TResult>(
         string title,
         string subtitle,
         string busyText,
         string loadingSummary,
-        Func<TResult> action,
+        Func<IProgress<CliProbeProgress>, CancellationToken, Task<TResult>> action,
         Func<TResult, CheckResultDialogData> onSuccess)
     {
         using var dialog = new CheckResultDialog(title, subtitle, loadingSummary, UiFont, MonoFont);
+        using var cancellation = new CancellationTokenSource();
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var progress = new Progress<CliProbeProgress>(value =>
+        {
+            dialog.SetProgress(value);
+            SetStatus(value.Message, $"{value.ElapsedMs} ms | {value.Phase}");
+        });
 
         isBusy = true;
         UpdateButtons();
         SetStatus(busyText, loadingSummary);
+        dialog.CancelRequested += (_, _) => cancellation.Cancel();
 
         dialog.Shown += async (_, _) =>
         {
             try
             {
-                var result = await Task.Run(action);
+                var result = await action(progress, cancellation.Token);
                 dialog.SetResult(onSuccess(result));
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+            {
+                var data = BuildCheckCancelledDialogData(title.Replace("进行中", "已取消", StringComparison.Ordinal), subtitle);
+                SetStatus("检查已取消。", data.Summary);
+                dialog.SetResult(data);
             }
             catch (Exception ex)
             {
@@ -1659,11 +1858,31 @@ internal sealed class LauncherForm : Form
             {
                 isBusy = false;
                 UpdateButtons();
+                completion.TrySetResult(true);
             }
         };
 
         dialog.ShowDialog(this);
-        return Task.CompletedTask;
+        if (!completion.Task.IsCompleted)
+        {
+            cancellation.Cancel();
+        }
+        await completion.Task;
+    }
+
+    private static CheckResultDialogData BuildCheckCancelledDialogData(string title, string subtitle)
+    {
+        var data = new CheckResultDialogData
+        {
+            Title = title,
+            Subtitle = subtitle,
+            Success = false,
+            Cancelled = true,
+            Summary = "检查已取消，等待中的网络请求或 CLI 子进程已终止。",
+            Details = "没有继续等待 Provider 返回。"
+        };
+        data.Rows.Add(new CheckResultRow("判定", "已取消"));
+        return data;
     }
 
     private CheckResultDialogData BuildCheckExceptionDialogData(string title, string subtitle, Exception ex)
@@ -1693,9 +1912,22 @@ internal sealed class LauncherForm : Form
             "bad_request" => "请求格式或模型不可用",
             "model_missing" => "未配置模型",
             "rate_limited" => "请求过于频繁或额度不足",
+            "cli_only_rejected" => "仅允许受认可的 CLI 客户端",
+            "forbidden" => "请求被拒绝",
             "responses_forbidden" => "Responses 路由被拒绝",
             "responses_unsupported" => "不支持 Responses API",
             "provider_unavailable" => "Provider 暂时不可用",
+            "provider_overloaded" => "Provider 流内过载",
+            "provider_error" => "Provider 返回错误",
+            "sse_failed" => "Responses 流返回失败事件",
+            "invalid_sse" => "SSE 数据无法解析",
+            "stream_incomplete" => "SSE 流未完整结束",
+            "empty_response" => "响应体为空",
+            "unexpected_response" => "响应格式无法识别",
+            "timeout" => "检查超时",
+            "cancelled" => "已取消",
+            "invalid_url" => "中转地址无效",
+            "probe_failed" => "快速检查异常",
             "unreachable" => "无法连接",
             "responses_unreachable" => "Responses 无法连接",
             "responses_failed" => "Responses 请求失败",
@@ -1706,6 +1938,11 @@ internal sealed class LauncherForm : Form
     private static string FormatHttpCode(int? statusCode)
     {
         return statusCode.HasValue ? statusCode.Value.ToString() : "无返回";
+    }
+
+    private static string FormatMilliseconds(int? value)
+    {
+        return value.HasValue ? $"{value.Value} ms" : "无";
     }
 
     private static string FormatNullable(int? value)
@@ -1836,6 +2073,17 @@ internal sealed class LauncherForm : Form
             UseShellExecute = true
         });
     }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            bridge.Dispose();
+            toolTip.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
 }
 
 internal sealed class PulseDotsControl : Control
@@ -1919,7 +2167,13 @@ internal sealed class CheckResultDialog : Form
     private readonly Color workingColor = Color.FromArgb(26, 26, 26);
     private string copyText = "";
     private bool loading;
+    private bool cancellationRequested;
     private PulseDotsControl? pulseDots;
+    private Label? progressLabel;
+    private Label? progressElapsedLabel;
+    private Button? cancelButton;
+
+    public event EventHandler? CancelRequested;
 
     public CheckResultDialog(CheckResultDialogData data, Func<float, FontStyle, Font> uiFont, Func<float, Font> monoFont)
     {
@@ -1978,14 +2232,37 @@ internal sealed class CheckResultDialog : Form
         BuildUi(data);
     }
 
+    public void SetProgress(CliProbeProgress progress)
+    {
+        if (IsDisposed || !loading)
+        {
+            return;
+        }
+
+        if (InvokeRequired)
+        {
+            BeginInvoke((Action)(() => SetProgress(progress)));
+            return;
+        }
+
+        if (progressLabel is not null)
+        {
+            progressLabel.Text = progress.Message;
+        }
+        if (progressElapsedLabel is not null)
+        {
+            progressElapsedLabel.Text = $"{progress.ElapsedMs} ms  |  {FormatPhase(progress.Phase)}";
+        }
+    }
+
     private void BuildUi(CheckResultDialogData data)
     {
         ClientSize = new Size(640, 540);
         Text = data.Title;
         copyText = BuildCopyText(data);
 
-        var statusColor = data.Success ? successColor : errorColor;
-        var statusText = data.Success ? "通过" : "失败";
+        var statusColor = data.Cancelled ? mutedColor : data.Success ? successColor : errorColor;
+        var statusText = data.Cancelled ? "已取消" : data.Success ? "通过" : "失败";
 
         var statusBar = new Panel
         {
@@ -2065,6 +2342,7 @@ internal sealed class CheckResultDialog : Form
     private void BuildLoadingUi(string title, string subtitle, string summaryText)
     {
         loading = true;
+        cancellationRequested = false;
         copyText = "";
 
         var statusBar = new Panel
@@ -2096,11 +2374,17 @@ internal sealed class CheckResultDialog : Form
         pulseDots.Start();
         Controls.Add(pulseDots);
 
-        Controls.Add(NewLabel("检查已开始。完成后这里会直接显示通过、失败、HTTP 状态码或 CLI 退出码。", 72, 218, 496, 42, 9.5f, FontStyle.Regular, mutedColor));
+        progressLabel = NewLabel("正在准备检查...", 72, 214, 496, 42, 9.5f, FontStyle.Regular, textColor);
+        progressLabel.TextAlign = ContentAlignment.MiddleCenter;
+        Controls.Add(progressLabel);
 
-        var closeButton = NewButton("检查中", 516, 292, 100, 36, primary: true);
-        closeButton.Enabled = false;
-        Controls.Add(closeButton);
+        progressElapsedLabel = NewLabel("0 ms  |  准备", 72, 256, 496, 24, 9.0f, FontStyle.Regular, mutedColor);
+        progressElapsedLabel.TextAlign = ContentAlignment.MiddleCenter;
+        Controls.Add(progressElapsedLabel);
+
+        cancelButton = NewButton("取消检查", 500, 300, 116, 36, primary: true);
+        cancelButton.Click += (_, _) => RequestCancellation();
+        Controls.Add(cancelButton);
     }
 
     private void ClearDialogControls()
@@ -2110,6 +2394,10 @@ internal sealed class CheckResultDialog : Form
             Controls.Remove(control);
             control.Dispose();
         }
+        pulseDots = null;
+        progressLabel = null;
+        progressElapsedLabel = null;
+        cancelButton = null;
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -2117,10 +2405,44 @@ internal sealed class CheckResultDialog : Form
         if (loading)
         {
             e.Cancel = true;
+            RequestCancellation();
             return;
         }
 
         base.OnFormClosing(e);
+    }
+
+    private void RequestCancellation()
+    {
+        if (!loading || cancellationRequested)
+        {
+            return;
+        }
+
+        cancellationRequested = true;
+        if (cancelButton is not null)
+        {
+            cancelButton.Enabled = false;
+            cancelButton.Text = "正在取消...";
+        }
+        if (progressLabel is not null)
+        {
+            progressLabel.Text = "正在终止请求，请稍候...";
+        }
+        CancelRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static string FormatPhase(string phase)
+    {
+        return phase switch
+        {
+            "connecting" => "连接",
+            "headers" => "响应头",
+            "stream" => "响应流",
+            "event" => "事件",
+            "cli" => "完整 CLI",
+            _ => phase
+        };
     }
 
     protected override void Dispose(bool disposing)
@@ -2229,7 +2551,7 @@ internal sealed class AddProfileForm : Form
         this.textColor = textColor;
         this.mutedColor = mutedColor;
 
-        Text = "新增供应商";
+        Text = "新增配置";
         Program.ApplyAppIcon(this);
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(1000, 760);
@@ -2243,8 +2565,8 @@ internal sealed class AddProfileForm : Form
 
     private void BuildUi()
     {
-        Controls.Add(NewLabel("新增供应商", 28, 20, 240, 30, 14, FontStyle.Bold));
-        Controls.Add(NewLabel("供应商 ID 可手动指定；共享 CODEX_HOME 自动管理，项目目录可以留空。", 28, 54, 700, 24, 9, FontStyle.Regular, mutedColor));
+        Controls.Add(NewLabel("新增配置", 28, 20, 240, 30, 14, FontStyle.Bold));
+        Controls.Add(NewLabel("配置 ID 可手动指定；它只用于应用内部定位，统一 provider 身份由设置页管理。", 28, 54, 780, 24, 9, FontStyle.Regular, mutedColor));
 
         var panel = new Panel
         {
@@ -2256,7 +2578,7 @@ internal sealed class AddProfileForm : Form
         Controls.Add(panel);
 
         panel.Controls.Add(NewLabel("API 信息", 20, 18, 160, 24, 10, FontStyle.Bold));
-        nameBox = AddTextRow(panel, "显示名称", 54, "例如：0xPsyche 福利中转");
+        nameBox = AddTextRow(panel, "配置名称", 54, "例如：福利中转 - 主力");
         idBox = AddSupplierIdRow(panel, 98);
         baseUrlBox = AddTextRow(panel, "中转地址", 142, "例如：https://example.com/v1");
         modelBox = AddModelRow(panel, 186);
@@ -2328,7 +2650,7 @@ internal sealed class AddProfileForm : Form
         cancelButton.Click += (_, _) => DialogResult = DialogResult.Cancel;
         Controls.Add(cancelButton);
 
-        var createButton = NewButton("创建供应商", 674, 570, 100, 36, primary: true);
+        var createButton = NewButton("创建配置", 674, 570, 100, 36, primary: true);
         createButton.Click += (_, _) => TryAccept();
         Controls.Add(createButton);
     }
@@ -2351,7 +2673,7 @@ internal sealed class AddProfileForm : Form
 
     private TextBox AddSupplierIdRow(Control parent, int y)
     {
-        parent.Controls.Add(NewLabel("供应商 ID", 20, y + 4, 132, 24, 9, FontStyle.Bold));
+        parent.Controls.Add(NewLabel("配置 ID", 20, y + 4, 132, 24, 9, FontStyle.Bold));
         var box = new TextBox
         {
             Location = new Point(166, y),
@@ -2430,7 +2752,7 @@ internal sealed class AddProfileForm : Form
             var match = Regex.Match(html, @"<title[^>]*>\s*(.*?)\s*</title>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
             if (!match.Success)
             {
-                validationLabel.Text = "没有读取到网页标题，请手动填写供应商 ID。";
+                validationLabel.Text = "没有读取到网页标题，请手动填写配置 ID。";
                 return;
             }
 
@@ -2438,7 +2760,7 @@ internal sealed class AddProfileForm : Form
             var generatedId = NormalizeProfileId(title);
             if (string.IsNullOrWhiteSpace(generatedId))
             {
-                validationLabel.Text = "网页标题无法转换成供应商 ID，请手动填写。";
+                validationLabel.Text = "网页标题无法转换成配置 ID，请手动填写。";
                 return;
             }
 
@@ -2448,7 +2770,7 @@ internal sealed class AddProfileForm : Form
             }
             SetSupplierIdText(generatedId, markTouched: true);
             UpdateDefaultConfigDirFromId();
-            validationLabel.Text = $"已根据网页标题生成供应商 ID：{generatedId}";
+            validationLabel.Text = $"已根据网页标题生成配置 ID：{generatedId}";
         }
         catch (Exception ex)
         {
@@ -2768,7 +3090,7 @@ internal sealed class AddProfileForm : Form
             string.IsNullOrWhiteSpace(model) ||
             string.IsNullOrWhiteSpace(apiKey))
         {
-            validationLabel.Text = "请填写名称、供应商 ID、中转地址、模型和 API Key。";
+            validationLabel.Text = "请填写配置名称、配置 ID、中转地址、模型和 API Key。";
             return;
         }
 
@@ -3068,7 +3390,7 @@ internal sealed class LauncherButton : Button
     }
 }
 
-internal sealed class PowerShellBridge
+internal sealed class PowerShellBridge : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -3078,6 +3400,7 @@ internal sealed class PowerShellBridge
     private readonly string rootDir;
     private readonly string modulePath;
     private readonly string shellPath;
+    private readonly CodexCliProbe fastProbe;
 
     public PowerShellBridge(string rootDir)
     {
@@ -3089,6 +3412,7 @@ internal sealed class PowerShellBridge
         }
 
         shellPath = ResolvePowerShell() ?? throw new FileNotFoundException("没有找到 pwsh.exe 或 powershell.exe。");
+        fastProbe = new CodexCliProbe();
     }
 
     public List<ProfileInfo> GetProfiles()
@@ -3114,6 +3438,22 @@ internal sealed class PowerShellBridge
         var output = RunModule("$settings = Set-CodexApiLauncherSharedHome -SharedCodexHome " + Quote(sharedHome) + "; " +
             "ConvertTo-Json -InputObject $settings -Depth 8 -Compress");
         return JsonSerializer.Deserialize<LauncherSettings>(output.StandardOutput.Trim(), JsonOptions) ?? new LauncherSettings();
+    }
+
+    public LauncherSettings SetProviderIdentity(string providerId, string providerName)
+    {
+        var output = RunModule("$settings = Set-CodexApiLauncherProviderIdentity -ProviderId " + Quote(providerId) +
+            " -ProviderName " + Quote(providerName) + "; ConvertTo-Json -InputObject $settings -Depth 8 -Compress");
+        return JsonSerializer.Deserialize<LauncherSettings>(output.StandardOutput.Trim(), JsonOptions) ?? new LauncherSettings();
+    }
+
+    public ConversationProviderMigrationResult MigrateConversationProviders()
+    {
+        var settings = GetSettings();
+        return CodexConversationProviderMigration.Run(
+            settings.SharedCodexHome,
+            settings.ProviderId,
+            settings.LegacyProviderIds);
     }
 
     public MigrationResult GetMigrationDryRun()
@@ -3295,6 +3635,23 @@ internal sealed class PowerShellBridge
         return JsonSerializer.Deserialize<ProfileTestResult>(output.StandardOutput.Trim(), JsonOptions) ?? new ProfileTestResult();
     }
 
+    public Task<CliProbeResult> RunFastProbeAsync(
+        ProfileInfo profile,
+        bool useCliIdentity,
+        IProgress<CliProbeProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var launcherHome = GetLauncherHome();
+        var apiKey = ProtectedApiKeyReader.Read(launcherHome, profile.Id);
+        var request = new CliProbeRequest(
+            profile.BaseUrl,
+            profile.Model,
+            apiKey,
+            useCliIdentity ? CliProbeMode.CliCompatible : CliProbeMode.StandardHttp,
+            TimeSpan.FromSeconds(8));
+        return fastProbe.RunAsync(request, progress, cancellationToken);
+    }
+
     public List<string> GetModels(string id)
     {
         var output = RunModule($"$result = @(Get-CodexApiProfileModels -Id {Quote(id)}); ConvertTo-Json -InputObject $result -Depth 8 -Compress", timeoutMilliseconds: 60_000);
@@ -3340,14 +3697,50 @@ internal sealed class PowerShellBridge
         };
     }
 
+    public async Task<CliCheckResult> RunCliCheckAsync(
+        string id,
+        string workspace,
+        bool usedFallback,
+        CancellationToken cancellationToken)
+    {
+        var command = "Start-CodexApiProfile -Id " + Quote(id) + " -Workspace " + Quote(workspace) +
+            " -InCurrentWindow -CodexArgs @('exec','--skip-git-repo-check','Reply exactly CLI_OK'); exit $global:LASTEXITCODE";
+        var output = await RunModuleAsync(command, throwOnNonZero: false, timeoutMilliseconds: 240_000, cancellationToken);
+        var foundExpectedReply = output.StandardOutput.Contains("CLI_OK", StringComparison.OrdinalIgnoreCase);
+        var ok = output.ExitCode == 0 && foundExpectedReply;
+        var failureReason = ok
+            ? ""
+            : output.ExitCode != 0
+                ? $"Codex CLI 退出码为 {output.ExitCode}。"
+                : "Codex CLI 已退出，但没有收到预期的 CLI_OK。";
+
+        return new CliCheckResult
+        {
+            Id = id,
+            Workspace = workspace,
+            UsedFallback = usedFallback,
+            ExitCode = output.ExitCode,
+            FoundExpectedReply = foundExpectedReply,
+            Ok = ok,
+            FailureReason = failureReason,
+            StandardOutput = TrimForDisplay(output.StandardOutput, 3000),
+            StandardError = TrimForDisplay(output.StandardError, 1600)
+        };
+    }
+
     public string GetLaunchersDir()
+    {
+        return Path.Combine(GetLauncherHome(), "launchers");
+    }
+
+    private static string GetLauncherHome()
     {
         var home = Environment.GetEnvironmentVariable("CODEX_API_LAUNCHER_HOME");
         if (string.IsNullOrWhiteSpace(home))
         {
             home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexApiLauncher");
         }
-        return Path.Combine(home, "launchers");
+        return Path.GetFullPath(home);
     }
 
     private PowerShellOutput RunModule(string command, bool throwOnNonZero = true, int timeoutMilliseconds = 120_000)
@@ -3357,6 +3750,19 @@ internal sealed class PowerShellBridge
             "$ErrorActionPreference = 'Stop'; " +
             "Import-Module " + Quote(modulePath) + " -Force; ";
         return RunPowerShell(prefix + command, throwOnNonZero, timeoutMilliseconds);
+    }
+
+    private Task<PowerShellOutput> RunModuleAsync(
+        string command,
+        bool throwOnNonZero,
+        int timeoutMilliseconds,
+        CancellationToken cancellationToken)
+    {
+        var prefix = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); " +
+            "$OutputEncoding = [Console]::OutputEncoding; " +
+            "$ErrorActionPreference = 'Stop'; " +
+            "Import-Module " + Quote(modulePath) + " -Force; ";
+        return RunPowerShellAsync(prefix + command, throwOnNonZero, timeoutMilliseconds, cancellationToken);
     }
 
     private PowerShellOutput RunPowerShell(string command, bool throwOnNonZero, int timeoutMilliseconds)
@@ -3424,6 +3830,74 @@ internal sealed class PowerShellBridge
         return output;
     }
 
+    private async Task<PowerShellOutput> RunPowerShellAsync(
+        string command,
+        bool throwOnNonZero,
+        int timeoutMilliseconds,
+        CancellationToken cancellationToken)
+    {
+        using var process = CreatePowerShellProcess(command);
+        process.Start();
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(timeoutMilliseconds);
+
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+            await Task.WhenAll(stdoutTask, stderrTask);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None);
+            }
+            catch
+            {
+                // Best effort process-tree cleanup before cancellation is reported.
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
+            throw new TimeoutException("PowerShell 操作超时。");
+        }
+
+        var output = new PowerShellOutput(process.ExitCode, stdoutTask.Result.Trim(), stderrTask.Result.Trim());
+        if (throwOnNonZero && output.ExitCode != 0)
+        {
+            var detail = string.IsNullOrWhiteSpace(output.StandardError) ? output.StandardOutput : output.StandardError;
+            throw new InvalidOperationException(detail);
+        }
+        return output;
+    }
+
+    private Process CreatePowerShellProcess(string command)
+    {
+        var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = shellPath,
+            WorkingDirectory = rootDir,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+        process.StartInfo.ArgumentList.Add("-NoProfile");
+        process.StartInfo.ArgumentList.Add("-ExecutionPolicy");
+        process.StartInfo.ArgumentList.Add("Bypass");
+        process.StartInfo.ArgumentList.Add("-Command");
+        process.StartInfo.ArgumentList.Add(command);
+        return process;
+    }
+
     private static string? ResolvePowerShell()
     {
         var configured = Environment.GetEnvironmentVariable("CODEX_API_LAUNCHER_PWSH");
@@ -3479,6 +3953,11 @@ internal sealed class PowerShellBridge
         }
         return value.Length <= maxLength ? value : value[..maxLength];
     }
+
+    public void Dispose()
+    {
+        fastProbe.Dispose();
+    }
 }
 
 internal sealed record PowerShellOutput(int ExitCode, string StandardOutput, string StandardError);
@@ -3488,6 +3967,7 @@ internal sealed class CheckResultDialogData
     public string Title { get; set; } = "";
     public string Subtitle { get; set; } = "";
     public bool Success { get; set; }
+    public bool Cancelled { get; set; }
     public string Summary { get; set; } = "";
     public string Details { get; set; } = "";
     public List<CheckResultRow> Rows { get; } = new();
@@ -3519,6 +3999,9 @@ internal sealed class ProfileInfo
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
+    public string ConfigName { get; set; } = "";
+    public string ProviderId { get; set; } = "";
+    public string ProviderName { get; set; } = "";
     public string BaseUrl { get; set; } = "";
     public string Model { get; set; } = "";
     public string EnvKeyName { get; set; } = "";
@@ -3584,6 +4067,9 @@ internal sealed class LauncherSettings
     public string LauncherVersion { get; set; } = "";
     public string Root { get; set; } = "";
     public string SharedCodexHome { get; set; } = "";
+    public string ProviderId { get; set; } = "";
+    public string ProviderName { get; set; } = "";
+    public List<string> LegacyProviderIds { get; set; } = new();
     public string ProfilesPath { get; set; } = "";
     public string SecretsDir { get; set; } = "";
     public string LaunchersDir { get; set; } = "";
